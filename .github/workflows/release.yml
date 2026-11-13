@@ -1,6 +1,6 @@
-# Pushing a tag such as v1.2.0 creates the GitHub release that the installers
-# download from. The tag has to match the version in both scripts.
-#   git tag v1.2.0 && git push origin v1.2.0
+# Pushing a tag v<VERSION> creates the GitHub release that the installers and
+# `dvm update` download from. The tag has to match the VERSION file:
+#   git tag "v$(cat VERSION)" && git push origin "v$(cat VERSION)"
 name: release
 on:
   push:
@@ -12,16 +12,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: The tag matches dvm's version
+      - name: The tag matches the VERSION file
         run: |
-          v="${GITHUB_REF_NAME#v}"
-          grep -qx "DVM_VERSION=\"$v\"" unix/dvm || { echo "unix/dvm does not say DVM_VERSION=\"$v\""; exit 1; }
-          grep -qx "\$DvmVersion = '$v'" windows/dvm.ps1 || { echo "windows/dvm.ps1 does not say \$DvmVersion = '$v'"; exit 1; }
+          v=$(tr -d '[:space:]' < VERSION)
+          echo "VERSION file: $v, tag: $GITHUB_REF_NAME"
+          [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "::error::The tag must be v$v (the VERSION file), not $GITHUB_REF_NAME"; exit 1; }
       - name: Tests
         run: tests/run-unix.sh && tests/test-install.sh
+      - name: Files with the version written in
+        run: |
+          v=$(tr -d '[:space:]' < VERSION)
+          mkdir dist
+          sed "s/^DVM_VERSION=\"0\.0\.0-dev\"\$/DVM_VERSION=\"$v\"/" unix/dvm > dist/dvm
+          sed "s/^\\\$DvmVersion = '0\.0\.0-dev'/\$DvmVersion = '$v'/" windows/dvm.ps1 > dist/dvm.ps1
+          grep -qx "DVM_VERSION=\"$v\"" dist/dvm
+          grep -q "^\$DvmVersion = '$v'" dist/dvm.ps1
+          chmod +x dist/dvm
+          cp VERSION unix/install.sh windows/install.ps1 windows/dvm.cmd dist/
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" --title "dvm $GITHUB_REF_NAME" --generate-notes \
-            unix/install.sh unix/dvm windows/install.ps1 windows/dvm.ps1 windows/dvm.cmd
+        run: gh release create "$GITHUB_REF_NAME" --title "dvm $GITHUB_REF_NAME" --generate-notes dist/*

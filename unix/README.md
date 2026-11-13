@@ -49,17 +49,41 @@ git clone https://github.com/avramovioan/dvm.git
 | Step | Detail |
 |---|---|
 | 1. Get `dvm` | **Run from a clone:** it uses the clone's `unix/dvm`. **Anywhere else** (piped, or a downloaded copy of `install.sh`): it downloads `unix/dvm` from GitHub, from the **latest release**, or from `master` while there is no release yet. It checks that what arrived really is the dvm script. |
-| 2. Install it | Copies it to **`/usr/local/bin/dvm`**, asking for your sudo password if that folder isn't writable (`~/.local/bin/dvm` with `--user`, no sudo). |
-| 3. Check your PATH | Tells you if the folder isn't on your PATH, or if another `dvm` comes first. |
+| 2. Write the version | Writes the version from the repository's `VERSION` file into the copy, so `dvm version` reports it. |
+| 3. Install it | Copies it to **`/usr/local/bin/dvm`**, asking for your sudo password if that folder isn't writable (`~/.local/bin/dvm` with `--user`, no sudo). |
+| 4. Check your PATH | Tells you if the folder isn't on your PATH, or if another `dvm` comes first. |
 
 That's all it does: you end up with the `dvm` command, and .NET isn't
 touched. Then run `dvm list` to see the versions, `dvm install lts` to
 install the newest SDK, or `dvm init` to take over a .NET install you
-already have. To **update** dvm, run the same command again.
+already have.
+
+### Updating dvm
+
+```bash
+dvm update
+```
+
+It checks the latest release on GitHub. If that's newer than your dvm, it
+runs that release's `install.sh` into the folder your dvm is in (asking for
+sudo if that's `/usr/local/bin`):
+
+```
+$ dvm update
+Checking for a newer dvm ...
+Updating dvm 1.1.0 to 1.2.0 ...
+Downloading dvm (v1.2.0) from https://raw.githubusercontent.com/avramovioan/dvm ...
+✔ dvm 1.2.0 installed to /usr/local/bin/dvm (was 1.1.0, from avramovioan/dvm@v1.2.0)
+```
+
+If you run dvm from a git clone (alias or symlink), `dvm update` tells you to
+`git pull` instead. Running the install command again does the same as
+`dvm update`.
 
 | Option | Environment variable | Effect |
 |---|---|---|
 | `--user` | | Install to `~/.local/bin/dvm` instead, without sudo. |
+| `--dir <folder>` | | Install to `<folder>/dvm`. `dvm update` uses this to replace itself. |
 | `--ref <tag or branch>` | `DVM_REF=<tag or branch>` | Install that version instead of the latest release, e.g. `--ref v1.1.0`. |
 
 With the one-liner, options go after `bash -s --`, for example
@@ -75,7 +99,7 @@ There are three ways to get a `dvm` command. They all run the same script.
 
 | Way | Command | Updates with `git pull` | Works in scripts and other programs | Needs sudo |
 |---|---|---|---|---|
-| **Copy** (recommended) | the one-liner above, or `./dvm/unix/install.sh` | no, run it again | yes | only for `/usr/local/bin` |
+| **Copy** (recommended) | the one-liner above, or `./dvm/unix/install.sh` | no: `dvm update` | yes | only for `/usr/local/bin` |
 | **Symlink** to the clone | `ln -s "$PWD/dvm/unix/dvm" ~/.local/bin/dvm` | yes | yes | no |
 | **Alias** in your shell profile | see below | yes | no, only in your interactive terminal | no |
 

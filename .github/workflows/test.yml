@@ -11,6 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: VERSION holds a version like 1.2.0
+        run: grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' VERSION || { echo "::error::VERSION must contain one line like 1.2.0"; exit 1; }
       - name: Tests (bash on Linux, /bin/bash 3.2 on macOS)
         run: |
           if [ "$(uname -s)" = Darwin ]; then export DVM_TEST_BASH=/bin/bash; fi
@@ -30,9 +32,13 @@ jobs:
       - name: Tests (Windows PowerShell 5.1)
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-windows.ps1
-      - name: dvm.cmd starts dvm
-        shell: cmd
-        run: windows\dvm.cmd version
+      - name: dvm.cmd starts dvm and passes its exit code on
+        shell: powershell
+        run: |
+          & windows\dvm.cmd version
+          if ($LASTEXITCODE -ne 0) { throw "dvm.cmd version exited with $LASTEXITCODE" }
+          & windows\dvm.cmd no-such-command
+          if ($LASTEXITCODE -ne 2) { throw "dvm.cmd no-such-command exited with $LASTEXITCODE, expected 2" }
       - name: Installer tests
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-install.ps1

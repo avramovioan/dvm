@@ -10,7 +10,8 @@
 # It only installs the dvm command; it doesn't touch .NET.
 # Next to a clone's dvm.ps1 and dvm.cmd it installs those files. Anywhere else
 # it downloads them from GitHub: the latest release, or master while there is
-# none. Run it again to update dvm.
+# none. Either way it writes the version from the VERSION file into the copy.
+# `dvm update` runs this script too.
 #
 # Files go to %LOCALAPPDATA%\Programs\dvm:
 #   dvm.cmd        the global `dvm` command (works in PowerShell and cmd)
@@ -27,10 +28,12 @@ function Install-Dvm([string]$Here, [string]$Ref) {
     $isWin = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
     $repo = if ($env:DVM_REPO) { $env:DVM_REPO } else { 'avramovioan/dvm' }
     $baseUrl = if ($env:DVM_BASE_URL) { $env:DVM_BASE_URL } else { "https://raw.githubusercontent.com/$repo" }
-    $apiUrl = if ($env:DVM_API_URL) { $env:DVM_API_URL } else { "https://api.github.com/repos/$repo/releases/latest" }
+    $latestUrl = if ($env:DVM_LATEST_URL) { $env:DVM_LATEST_URL } else { "https://github.com/$repo/releases/latest/download/VERSION" }
     $localData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { throw 'LOCALAPPDATA is not set' }
     $dest = Join-Path (Join-Path $localData 'Programs') 'dvm'
+    $lib = Join-Path $dest 'lib'
     $check = [string][char]0x2714
+    $versionRe = '^\d+\.\d+\.\d+$'
 
     # file:// URLs are only used by the tests.
     function Save-Url([string]$Url, [string]$File) {
@@ -40,44 +43,70 @@ function Install-Dvm([string]$Here, [string]$Ref) {
         try { Invoke-WebRequest -Uri $Url -OutFile $File -UseBasicParsing } finally { $global:ProgressPreference = $saved }
     }
 
-    $tmp = $null
+    function Read-Version([string]$File) {
+        if (-not (Test-Path -LiteralPath $File)) { return '' }
+        "$(Get-Content -LiteralPath $File -TotalCount 1)".Trim()
+    }
+
+    function Get-InstalledVersion {
+        if (-not (Test-Path -LiteralPath (Join-Path $lib 'dvm.ps1'))) { return '' }
+        try {
+            if ($isWin) { "$(& (Join-Path $dest 'dvm.cmd') version)" }
+            else { "$(& (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $lib 'dvm.ps1') version)" }   # only the tests get here
+        } catch { '' }
+    }
+
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('dvm-install-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
+        $src = Join-Path $tmp 'src'
+        New-Item -ItemType Directory -Path $src | Out-Null
         if ($Here -and (Test-Path -LiteralPath (Join-Path $Here 'dvm.ps1')) -and (Test-Path -LiteralPath (Join-Path $Here 'dvm.cmd'))) {
-            $src = $Here
+            foreach ($f in 'dvm.ps1', 'dvm.cmd') { Copy-Item -LiteralPath (Join-Path $Here $f) -Destination $src }
+            $version = Read-Version (Join-Path (Split-Path -Parent $Here) 'VERSION')
             $from = $Here
         } else {
             try {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
             } catch { }
-            $tmp = Join-Path ([IO.Path]::GetTempPath()) ('dvm-install-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $tmp | Out-Null
             if (-not $Ref) {
-                try {
-                    Save-Url $apiUrl (Join-Path $tmp 'latest.json')
-                    $Ref = "$((Get-Content -LiteralPath (Join-Path $tmp 'latest.json') -Raw | ConvertFrom-Json).tag_name)"
-                } catch { $Ref = '' }   # no release yet, or GitHub's API is not reachable
-                if (-not $Ref) { $Ref = 'master' }
+                # The latest release carries the VERSION file; without a release, use master.
+                $latest = ''
+                try { Save-Url $latestUrl (Join-Path $tmp 'latest'); $latest = Read-Version (Join-Path $tmp 'latest') } catch { }
+                $Ref = if ($latest -match $versionRe) { "v$latest" } else { 'master' }
             }
             if ($Ref -notmatch '^[A-Za-z0-9._/-]+$') { throw "not a tag or branch name: '$Ref'" }
             Write-Host "Downloading dvm ($Ref) from $baseUrl ..."
             foreach ($f in 'dvm.ps1', 'dvm.cmd') {
-                $file = Join-Path $tmp $f
-                try { Save-Url "$baseUrl/$Ref/windows/$f" $file } catch { throw "could not download $baseUrl/$Ref/windows/$f" }
-                # GitHub serves the files with LF line endings: cmd.exe wants CRLF,
-                # and Windows PowerShell 5.1 needs a BOM to read the script as UTF-8.
-                $text = [IO.File]::ReadAllText($file, [Text.Encoding]::UTF8) -replace "`r?`n", "`r`n"
-                $marker = if ($f -eq 'dvm.ps1') { '$DvmVersion =' } else { 'powershell.exe' }
-                if (-not $text.Contains($marker)) { throw "$baseUrl/$Ref/windows/$f is not part of dvm" }
-                [IO.File]::WriteAllText($file, $text, (New-Object Text.UTF8Encoding ($f -eq 'dvm.ps1')))
+                try { Save-Url "$baseUrl/$Ref/windows/$f" (Join-Path $src $f) } catch { throw "could not download $baseUrl/$Ref/windows/$f" }
             }
-            $src = $tmp
+            $version = ''
+            try { Save-Url "$baseUrl/$Ref/VERSION" (Join-Path $tmp 'VERSION'); $version = Read-Version (Join-Path $tmp 'VERSION') } catch { }
             $from = "$repo@$Ref"
         }
 
-        $lib = Join-Path $dest 'lib'
+        # Check the files, write the version into dvm.ps1 (older versions of dvm
+        # already contain it), and give Windows what it expects: CRLF line
+        # endings for cmd.exe, and a BOM so Windows PowerShell 5.1 reads the
+        # script as UTF-8. Files from GitHub arrive with LF line endings.
+        $out = Join-Path $tmp 'out'
+        New-Item -ItemType Directory -Path $out | Out-Null
+        foreach ($f in 'dvm.ps1', 'dvm.cmd') {
+            $text = [IO.File]::ReadAllText((Join-Path $src $f), [Text.Encoding]::UTF8) -replace "`r?`n", "`r`n"
+            $marker = if ($f -eq 'dvm.ps1') { '$DvmVersion =' } else { 'powershell.exe' }
+            if (-not $text.Contains($marker)) { throw "$from/$f is not part of dvm" }
+            $placeholder = "`$DvmVersion = '0.0.0-dev'"
+            if ($f -eq 'dvm.ps1' -and $text.Contains($placeholder)) {
+                if ($version -notmatch $versionRe) { throw "could not read the version from the VERSION file of $from" }
+                $text = $text.Replace($placeholder, "`$DvmVersion = '$version'")
+            }
+            [IO.File]::WriteAllText((Join-Path $out $f), $text, (New-Object Text.UTF8Encoding ($f -eq 'dvm.ps1')))
+        }
+
+        $before = Get-InstalledVersion
         New-Item -ItemType Directory -Force -Path $lib | Out-Null
-        Copy-Item -LiteralPath (Join-Path $src 'dvm.ps1') -Destination (Join-Path $lib 'dvm.ps1') -Force
-        Copy-Item -LiteralPath (Join-Path $src 'dvm.cmd') -Destination (Join-Path $dest 'dvm.cmd') -Force
+        Copy-Item -LiteralPath (Join-Path $out 'dvm.ps1') -Destination (Join-Path $lib 'dvm.ps1') -Force
+        Copy-Item -LiteralPath (Join-Path $out 'dvm.cmd') -Destination (Join-Path $dest 'dvm.cmd') -Force
         if ($isWin) {
             Get-ChildItem -LiteralPath $dest -Recurse -File | Unblock-File   # drop the "downloaded from the internet" mark
 
@@ -96,17 +125,21 @@ function Install-Dvm([string]$Here, [string]$Ref) {
                 }
             } finally { $key.Close() }
             if (@($env:Path -split ';') -notcontains $dest) { $env:Path = "$dest;$env:Path" }
-            $version = & (Join-Path $dest 'dvm.cmd') version
-        } else {
-            # Not Windows: only the tests get here. Check the installed script runs.
-            $version = & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $lib 'dvm.ps1') version
         }
+        $now = Get-InstalledVersion
+        if (-not $now) { throw "the installed dvm in $dest doesn't start" }
 
-        Write-Host "$check $version installed to $dest (from $from)"
-        Write-Host ''
-        Write-Host "Open a new terminal and run 'dvm list' to see the .NET versions, or 'dvm help' for all commands."
+        if ($before -and $before -ne $now) {
+            Write-Host "$check $now installed to $dest (was $($before -replace '^dvm ', ''), from $from)"
+        } else {
+            Write-Host "$check $now installed to $dest (from $from)"
+        }
+        if (-not $before) {
+            Write-Host ''
+            Write-Host "Open a new terminal and run 'dvm list' to see the .NET versions, or 'dvm help' for all commands."
+        }
     } finally {
-        if ($tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

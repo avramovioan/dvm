@@ -13,7 +13,15 @@
 
 set -u
 
-DVM_VERSION="1.1.0"
+# The version lives in the VERSION file at the top of the repository. The
+# installer and the release write it into the line below; run from a git
+# clone, dvm reads ../VERSION instead (see main).
+DVM_VERSION="0.0.0-dev"
+DEV_VERSION="0.0.0-dev"
+REPO="${DVM_REPO:-avramovioan/dvm}"
+RAW_URL="${DVM_BASE_URL:-https://raw.githubusercontent.com/$REPO}"
+LATEST_URL="${DVM_LATEST_URL:-https://github.com/$REPO/releases/latest/download/VERSION}"
+SOURCE_DIR=""         # the git clone dvm runs from, if it isn't installed
 META_URL="${DVM_META_URL:-https://builds.dotnet.microsoft.com/dotnet/release-metadata}"
 INSTALL_SCRIPT_URL="https://dot.net/v1/dotnet-install.sh"
 META_TTL_MIN=60       # release metadata is refreshed hourly
@@ -970,6 +978,41 @@ cmd_init() {
   fi
 }
 
+# Updates dvm itself: finds the latest release and runs that release's
+# installer into the folder this dvm is in.
+cmd_update() {
+  [ $# -eq 0 ] || die "usage: dvm update"
+  if [ -n "$SOURCE_DIR" ]; then
+    out "This dvm runs from the git clone in $SOURCE_DIR."
+    out "Update it with: git -C '$SOURCE_DIR' pull"
+    return 0
+  fi
+  local self dir tmp latest
+  self=$(realpath_ "$0") || die "can't tell where dvm is installed"
+  dir=$(dirname "$self")
+  tmp=$(mktemp -d) || die "can't create a temporary folder"
+  # shellcheck disable=SC2064  # expand $tmp now
+  trap "rm -rf '$tmp'" EXIT
+  out "Checking for a newer dvm ..."
+  download "$LATEST_URL" "$tmp/VERSION" 2>/dev/null \
+    || die "could not find the latest dvm release at $LATEST_URL (no release yet, or no network)"
+  latest=$(tr -d '[:space:]' < "$tmp/VERSION")
+  [[ "$latest" =~ $STABLE_RE ]] || die "the latest release has no valid version: '$latest'"
+  if [ "$latest" = "$DVM_VERSION" ]; then
+    out "$CHECK dvm $DVM_VERSION is the latest version"
+    return 0
+  fi
+  if [[ "$DVM_VERSION" =~ $STABLE_RE ]] && [ "$(printf '%s\n%s\n' "$latest" "$DVM_VERSION" | vsort | head -n1)" = "$DVM_VERSION" ]; then
+    out "$CHECK dvm $DVM_VERSION is newer than the latest release ($latest)"
+    return 0
+  fi
+  out "Updating dvm $DVM_VERSION to $latest ..."
+  download "$RAW_URL/v$latest/unix/install.sh" "$tmp/install.sh" 2>/dev/null \
+    || die "could not download $RAW_URL/v$latest/unix/install.sh"
+  DVM_REPO="$REPO" DVM_BASE_URL="$RAW_URL" sh "$tmp/install.sh" --ref "v$latest" --dir "$dir" \
+    || die "updating dvm failed"
+}
+
 usage() {
   cat <<EOF
 dvm $DVM_VERSION - .NET SDK and runtime version manager (LTS releases)
@@ -987,6 +1030,7 @@ dvm $DVM_VERSION - .NET SDK and runtime version manager (LTS releases)
   dvm uninstall runtime <v>  remove a runtime, e.g. dvm uninstall runtime 10.0.10
   dvm init                   find other .NET installs, offer to take them over,
                              and make dvm's folder the system default dotnet
+  dvm update                 update dvm itself to the latest release
   dvm version                print dvm's version
 
 Options: -y, --yes   answer yes to every question
@@ -1003,6 +1047,12 @@ main() {
     case "$a" in -y|--yes) ASSUME_YES=1 ;; *) args+=("$a") ;; esac
   done
   set -- ${args[@]+"${args[@]}"}
+  if [ "$DVM_VERSION" = "$DEV_VERSION" ]; then   # not installed: running from a clone
+    SOURCE_DIR=$(cd "$(dirname "$(realpath_ "$0")")/.." 2>/dev/null && pwd) || SOURCE_DIR=""
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/VERSION" ]; then
+      DVM_VERSION=$(tr -d '[:space:]' < "$SOURCE_DIR/VERSION")
+    fi
+  fi
   local cmd=${1:-help}
   [ $# -gt 0 ] && shift
   case "$cmd" in
@@ -1010,6 +1060,7 @@ main() {
     install|i)          detect auto; cmd_install "$@" ;;
     uninstall|remove|rm) cmd_uninstall "$@" ;;
     init)               cmd_init ;;
+    update|self-update) cmd_update "$@" ;;
     version|--version|-v) out "dvm $DVM_VERSION" ;;
     help|-h|--help)     usage ;;
     *)                  usage >&2; exit 2 ;;

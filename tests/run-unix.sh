@@ -23,6 +23,7 @@ build_root() { # <folder>: lay out the fake dotnet folder from fixtures/root.txt
   done < "$here/fixtures/root.txt"
 }
 
+version=$(tr -d '[:space:]' < "$here/../VERSION")
 pass=0; fail=0
 while IFS='|' read -r name args; do
   case "$name" in ""|\#*) continue ;; esac
@@ -45,7 +46,8 @@ $(cd "$case_dir/root" && find . -mindepth 1 -type d | sed 's|^\./||' | LC_ALL=C 
 --- kept runtimes:
 $(cat "$case_dir/state/runtimes" 2>/dev/null)" ;;
   esac
-  actual=$(printf '%s\n' "$actual" | sed "s|$case_dir/root|<ROOT>|g")
+  # dvm prints its version from the VERSION file; the expected output says <VERSION>.
+  actual=$(printf '%s\n' "$actual" | sed -e "s|$case_dir/root|<ROOT>|g" -e "s|^dvm $version\$|dvm <VERSION>|")
 
   expected_file="$here/expected/$name.txt"
   if [ -n "$update" ]; then

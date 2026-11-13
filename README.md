@@ -40,7 +40,7 @@ irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1
 Both download dvm from the latest GitHub release and put the `dvm` command
 on your PATH. Nothing else: .NET isn't touched until you run a `dvm`
 command, e.g. `dvm list`, `dvm install lts`, or `dvm init` to take over a
-.NET install you already have. Run them again to update dvm. The guides below cover options,
+.NET install you already have. Later, `dvm update` updates dvm itself. The guides below cover options,
 installing from a clone, and reading the installer before running it.
 
 | Guide | Covers |
@@ -63,6 +63,7 @@ installing from a clone, and reading the installer before running it.
 | `dvm uninstall 10.0.404` | Removes an SDK, and its runtime unless something still needs it (see [SDKs and runtimes](#sdks-and-runtimes)). |
 | `dvm uninstall runtime 10.0.11` | Removes a runtime, unless an installed SDK needs it. |
 | `dvm init` | Looks for .NET installed elsewhere, offers to install the same versions with dvm, and makes dvm's folder the system default `dotnet`. |
+| `dvm update` | Updates dvm itself to the latest release (run from a git clone, it tells you to `git pull` instead). |
 | `dvm version` | Prints dvm's version. |
 
 `-y` / `--yes` answers yes to every question, for scripts.
@@ -181,6 +182,7 @@ None to install:
 ## Repository layout
 
 ```
+VERSION               dvm's version: the only place it is written down
 unix/dvm              the command for Linux and macOS (bash)
 unix/install.sh       installs it to /usr/local/bin (or ~/.local/bin), from a clone or from GitHub
 windows/dvm.ps1       the command for Windows (PowerShell)
@@ -218,20 +220,47 @@ pwsh -File tests/test-install.ps1     # windows/install.ps1 (in CI only, on Wind
 3.2) and Windows PowerShell 5.1, and then installs dvm with the one-liners
 from the pushed commit.
 
-## Releasing
+## Versions and releases
 
-The installers download the **latest GitHub release** (or `master` while
-there is none). To publish a version:
+dvm's version is written in **one place: the `VERSION` file** (one line,
+e.g. `1.2.0`). The scripts only contain a placeholder, `0.0.0-dev`:
 
-1. Set the same version in `unix/dvm` (`DVM_VERSION`), `windows/dvm.ps1`
-   (`$DvmVersion`) and `tests/expected/version.txt`, and commit.
-2. Tag and push:
+| Where dvm runs | Where its version comes from |
+|---|---|
+| Installed by an installer or `dvm update` | The installer writes `VERSION` into the installed copy. |
+| Downloaded from a release page | The release workflow wrote `VERSION` into the attached files. |
+| Straight from a git clone (alias, symlink, tests) | dvm reads `VERSION` from the clone. |
+
+The installers and `dvm update` install the **latest GitHub release**, or
+`master` while there is none. They find the latest release through the
+`VERSION` file attached to it
+(`github.com/avramovioan/dvm/releases/latest/download/VERSION`).
+
+**To publish a version:**
+
+1. Raise the version in `VERSION`, commit, and push to `master`.
+2. Wait until the `test` workflow for that commit is green.
+3. Tag the commit with the same version and push the tag:
    ```bash
-   git tag v1.2.0 && git push origin v1.2.0
+   git tag "v$(cat VERSION)" && git push origin "v$(cat VERSION)"
    ```
 
-`.github/workflows/release.yml` checks that the tag matches both scripts,
-runs the tests, and creates the release with the scripts attached.
+`.github/workflows/release.yml` then checks that the tag is `v` plus the
+`VERSION` file, runs the tests, and creates the release. The release has
+the scripts (with the version written in) and the `VERSION` file attached.
+Until you tag, nobody gets the new version, so `master` can move ahead of
+the latest release.
+
+| Change | Raise | Example |
+|---|---|---|
+| Bug fixes only | the last number | 1.1.0 → 1.1.1 |
+| New features; everything that worked still works | the middle number, last one to 0 | 1.1.3 → 1.2.0 |
+| Something that worked now works differently | the first number | 1.4.2 → 2.0.0 |
+
+If a release workflow fails, nothing is published: delete the tag
+(`git tag -d v1.2.0 && git push origin :refs/tags/v1.2.0`), fix the
+problem, and tag again. Never move the tag of a release that was published;
+release a new version instead.
 
 ## Environment variables
 
@@ -242,4 +271,5 @@ runs the tests, and creates the release with the scripts attached.
 | `DVM_STATE` | `~/.config/dvm`, `%APPDATA%\dvm` | Remembers which other installs it already asked about (`seen`) and which runtimes you installed on their own (`runtimes`). |
 | `DVM_OFFLINE` | unset | Use only cached data. |
 | `DVM_NO_DETECT` | unset | Skip looking for other .NET installs. |
+| `DVM_REPO`, `DVM_BASE_URL`, `DVM_LATEST_URL` | `avramovioan/dvm` on GitHub | Where the installers and `dvm update` download dvm from (for forks and tests). |
 | `NO_COLOR` | unset | Plain output. |

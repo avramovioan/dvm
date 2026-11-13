@@ -13,12 +13,26 @@
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$DvmVersion = '1.1.0'
+# The version lives in the VERSION file at the top of the repository. The
+# installer and the release write it into the line below; run from a git
+# clone, dvm reads ..\VERSION instead.
+$DvmVersion = '0.0.0-dev'
+$DevVersion = '0.0.0-dev'
 
 function EnvOr([string]$Name, [string]$Fallback) {
     $v = [Environment]::GetEnvironmentVariable($Name)
     if ($v) { $v } else { $Fallback }
 }
+
+$SourceDir = ''   # the git clone dvm runs from, if it isn't installed
+if ($DvmVersion -eq $DevVersion -and $PSScriptRoot) {
+    $SourceDir = Split-Path -Parent $PSScriptRoot
+    $versionFile = Join-Path $SourceDir 'VERSION'
+    if (Test-Path -LiteralPath $versionFile) { $DvmVersion = "$(Get-Content -LiteralPath $versionFile -TotalCount 1)".Trim() }
+}
+$Repo = EnvOr 'DVM_REPO' 'avramovioan/dvm'
+$RawUrl = EnvOr 'DVM_BASE_URL' "https://raw.githubusercontent.com/$Repo"
+$LatestUrl = EnvOr 'DVM_LATEST_URL' "https://github.com/$Repo/releases/latest/download/VERSION"
 
 $IsWin = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $MetaUrl = EnvOr 'DVM_META_URL' 'https://builds.dotnet.microsoft.com/dotnet/release-metadata'
@@ -120,6 +134,7 @@ function Test-SamePath([string]$A, [string]$B) {
 # ------------------------------------------------------------- downloading
 
 function Save-Url([string]$Url, [string]$Dest) {
+    if ($Url.StartsWith('file://')) { Copy-Item -LiteralPath ([Uri]$Url).LocalPath -Destination $Dest; return }   # tests only
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     } catch { }
@@ -1114,6 +1129,45 @@ function Invoke-Init {
     }
 }
 
+# Updates dvm itself: finds the latest release and runs that release's
+# installer, which replaces the files in %LOCALAPPDATA%\Programs\dvm.
+function Invoke-Update([string[]]$CmdArgs) {
+    if ($CmdArgs.Count -gt 0) { Fail 'usage: dvm update' }
+    if ($SourceDir) {
+        Out-Line "This dvm runs from the git clone in $SourceDir."
+        Out-Line "Update it with: git -C '$SourceDir' pull"
+        return
+    }
+    $lib = Join-Path (Join-Path (Join-Path (EnvOr 'LOCALAPPDATA' '') 'Programs') 'dvm') 'lib'
+    if (-not (Test-SamePath $PSScriptRoot $lib)) {
+        Fail ("this dvm runs from $PSScriptRoot, not from where install.ps1 puts it ($lib). Install it again with:`n" +
+              "  irm https://raw.githubusercontent.com/$Repo/master/windows/install.ps1 | iex")
+    }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('dvm-update-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    try {
+        Out-Line 'Checking for a newer dvm ...'
+        $file = Join-Path $tmp 'VERSION'
+        try { Save-Url $LatestUrl $file } catch { Fail "could not find the latest dvm release at $LatestUrl (no release yet, or no network)" }
+        $latest = "$(Get-Content -LiteralPath $file -TotalCount 1)".Trim()
+        if ($latest -notmatch $StableRe) { Fail "the latest release has no valid version: '$latest'" }
+        if ($latest -eq $DvmVersion) { Out-Line "$Check dvm $DvmVersion is the latest version"; return }
+        if ($DvmVersion -match $StableRe -and [version]$DvmVersion -gt [version]$latest) {
+            Out-Line "$Check dvm $DvmVersion is newer than the latest release ($latest)"
+            return
+        }
+        Out-Line "Updating dvm $DvmVersion to $latest ..."
+        $installer = Join-Path $tmp 'install.ps1'
+        try { Save-Url "$RawUrl/v$latest/windows/install.ps1" $installer } catch { Fail "could not download $RawUrl/v$latest/windows/install.ps1" }
+        $env:DVM_REPO = $Repo
+        $env:DVM_BASE_URL = $RawUrl
+        & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $installer -Ref "v$latest"
+        if ($LASTEXITCODE -ne 0) { Fail 'updating dvm failed' }
+    } finally {
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Show-Usage {
     @"
 dvm $DvmVersion - .NET SDK and runtime version manager (LTS releases)
@@ -1131,6 +1185,7 @@ dvm $DvmVersion - .NET SDK and runtime version manager (LTS releases)
   dvm uninstall runtime <v>  remove a runtime, e.g. dvm uninstall runtime 10.0.10
   dvm init                   find other .NET installs, offer to take them over,
                              and make dvm's folder the system default dotnet
+  dvm update                 update dvm itself to the latest release
   dvm version                print dvm's version
 
 Options: -y, --yes   answer yes to every question
@@ -1174,6 +1229,7 @@ switch ($cmd) {
     { $_ -in 'install', 'i' }              { Invoke-Detect 'auto'; Invoke-Install $cmdArgs }
     { $_ -in 'uninstall', 'remove', 'rm' } { Invoke-Uninstall $cmdArgs }
     'init'                                 { Invoke-Init }
+    { $_ -in 'update', 'self-update' }     { Invoke-Update $cmdArgs }
     { $_ -in 'version', '--version', '-v' } { Out-Line "dvm $DvmVersion" }
     { $_ -in 'help', '-h', '--help' }      { Show-Usage }
     default                                { Show-Usage; exit 2 }

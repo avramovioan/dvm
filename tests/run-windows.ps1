@@ -29,6 +29,7 @@ function New-FakeRoot([string]$Root) {
     }
 }
 
+$version = "$(Get-Content -LiteralPath (Join-Path (Split-Path -Parent $here) 'VERSION') -TotalCount 1)".Trim()
 $pass = 0
 $fail = 0
 try {
@@ -68,6 +69,7 @@ try {
         # Paths below the fake root are compared with / on every OS.
         $actual = (($output | ForEach-Object {
             $l = $_.Replace($root, '<ROOT>')
+            if ($l -ceq "dvm $version") { $l = 'dvm <VERSION>' }   # dvm prints its version from the VERSION file
             if ($l.Contains('<ROOT>')) { $l = $l.Replace('\', '/') }
             $l
         }) -join "`n").TrimEnd()

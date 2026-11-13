@@ -56,14 +56,38 @@ Then **open a new terminal**.
 | Step | Detail |
 |---|---|
 | 1. Get dvm | **Run from a clone:** it uses the clone's `dvm.ps1` and `dvm.cmd`. **Anywhere else** (`irm \| iex`, or a downloaded copy of `install.ps1`): it downloads both from GitHub, from the **latest release**, or from `master` while there is no release yet. It checks that the files really are dvm's, and converts them to what Windows expects (CRLF line endings, and a BOM so Windows PowerShell 5.1 reads `dvm.ps1` as UTF-8). |
-| 2. Install it | Copies `dvm.cmd` and `lib\dvm.ps1` to **`%LOCALAPPDATA%\Programs\dvm`** and removes the "downloaded from the internet" mark. |
-| 3. PATH | Adds that folder to your **user PATH** (not the system PATH). |
+| 2. Write the version | Writes the version from the repository's `VERSION` file into `dvm.ps1`, so `dvm version` reports it. |
+| 3. Install it | Copies `dvm.cmd` and `lib\dvm.ps1` to **`%LOCALAPPDATA%\Programs\dvm`** and removes the "downloaded from the internet" mark. |
+| 4. PATH | Adds that folder to your **user PATH** (not the system PATH). |
 
 That's all it does: you end up with the `dvm` command, and .NET isn't
 touched. Open a new terminal, then run `dvm list` to see the versions,
 `dvm install lts` to install the newest SDK, or `dvm init` to take over a
-.NET install you already have. To **update** dvm, run the same command
-again.
+.NET install you already have.
+
+### Updating dvm
+
+```powershell
+dvm update
+```
+
+It checks the latest release on GitHub. If that's newer than your dvm, it
+runs that release's `install.ps1`, which replaces the files in
+`%LOCALAPPDATA%\Programs\dvm`. No administrator rights are needed:
+
+```
+PS> dvm update
+Checking for a newer dvm ...
+Updating dvm 1.1.0 to 1.2.0 ...
+Downloading dvm (v1.2.0) from https://raw.githubusercontent.com/avramovioan/dvm ...
+✔ dvm 1.2.0 installed to C:\Users\you\AppData\Local\Programs\dvm (was 1.1.0, from avramovioan/dvm@v1.2.0)
+```
+
+If you run dvm from a git clone (alias or macro), `dvm update` tells you to
+`git pull` instead. Running the install command again does the same as
+`dvm update`. `dvm.cmd` runs PowerShell and exits on one line on purpose:
+cmd.exe reads batch files line by line, and `dvm update` replaces `dvm.cmd`
+while it runs.
 
 | Parameter (`-File`) | With `irm \| iex`, set first | Effect |
 |---|---|---|
@@ -90,7 +114,7 @@ There are three ways to get a `dvm` command. They all run the same script.
 
 | Way | Updates with `git pull` | PowerShell | cmd | Scripts and other programs |
 |---|---|---|---|---|
-| **`install.ps1`** (recommended): the one-liner above, or from a clone | no, run it again | yes | yes | yes |
+| **`install.ps1`** (recommended): the one-liner above, or from a clone | no: `dvm update` | yes | yes | yes |
 | **PowerShell alias** to the clone | yes | yes | no | no |
 | **cmd macro** (`doskey`) to the clone | yes | no | yes | no |
 
@@ -414,6 +438,6 @@ tests. These Windows-only parts can only be checked on Windows:
    `$PROFILE`) and the cmd macro both start dvm from the clone, and
    `dvm install` from the alias still gets its UAC prompt.
 10. The one-liner `irm ... | iex` in Windows PowerShell 5.1 installs dvm
-    and nothing else, the window stays open on errors (try
+    and nothing else, `dvm version` shows the version from `VERSION`, the window stays open on errors (try
     `$env:DVM_REF = 'nope'` first), and the cmd variant
     (`powershell -Command "irm ... | iex"`) works too.

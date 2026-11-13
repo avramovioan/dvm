@@ -202,15 +202,50 @@ Both installers work in two modes:
 
 How download mode picks and checks the files:
 
-- `<ref>` is `--ref` / `-Ref` / `DVM_REF` if given. Otherwise it's the
-  latest release's `tag_name` from the GitHub API, or `master` when there is
-  no release yet.
+- `<ref>` is `--ref` / `-Ref` / `DVM_REF` if given. Otherwise it's
+  `v<version>` from the `VERSION` file attached to the latest release
+  (`github.com/<repo>/releases/latest/download/VERSION`, a plain download
+  with no API rate limit), or `master` when there is no release yet.
 - Refs are restricted to `[A-Za-z0-9._/-]`, and what arrives is checked: a
   bash shebang plus `DVM_VERSION=`, or `$DvmVersion =` / `powershell.exe`.
   That catches HTML error pages.
-- `DVM_REPO`, `DVM_BASE_URL` and `DVM_API_URL` override where it downloads
-  from (CI, forks, tests). The tests use `file://` URLs; `install.ps1` copies
+- `DVM_REPO`, `DVM_BASE_URL` and `DVM_LATEST_URL` override where it
+  downloads from (CI, forks, tests); dvm itself reads them too, for
+  `dvm update`. The tests use `file://` URLs; `install.ps1` copies
   those itself, because PowerShell 7's web cmdlets can't read them.
+
+The version:
+
+- It is written **only** in `VERSION`. The scripts hold the placeholder
+  `DVM_VERSION="0.0.0-dev"` / `$DvmVersion = '0.0.0-dev'`, and these lines
+  must stay exactly like that.
+- The installers replace the placeholder in the copy they install with
+  `VERSION` from the same ref, or from `../VERSION` in clone mode. They
+  refuse to install a placeholder copy without a valid `VERSION`, but
+  accept old files that already have a version.
+- The release workflow does the same for the files it attaches.
+- A script that still has the placeholder knows it runs from a clone
+  (`SOURCE_DIR` / `$SourceDir`). It reads `../VERSION` for `dvm version`, and
+  `dvm update` tells the user to `git pull`.
+- The test runners replace `dvm <VERSION file>` with `dvm <VERSION>`, so a
+  version bump changes no expected output.
+
+`dvm update`:
+
+- It downloads the latest release's `VERSION` and compares it with its own
+  version. If the release is newer, it downloads **that release's**
+  installer (`<raw>/v<latest>/...`) and runs it.
+  - Unix: `--ref v<latest> --dir <folder of the running dvm>`; the
+    installer's `sudo` handles `/usr/local/bin`.
+  - Windows: `-Ref v<latest>`; Windows only updates
+    `%LOCALAPPDATA%\Programs\dvm`, so an install anywhere else is refused.
+- Without a release, or without a network, it fails with a message. It
+  never falls back to `master`.
+- `windows/dvm.cmd` keeps `powershell.exe ... %* & exit /b` on **one line**.
+  The installer replaces `dvm.cmd` while it runs, and cmd.exe reads batch
+  files line by line, so anything after that line could come from the new
+  file. `exit /b` without a number keeps PowerShell's exit code; CI checks
+  that.
 
 Constraints that come from `curl | bash`:
 
@@ -296,12 +331,17 @@ DVM_ROOT=/tmp/x DVM_STATE=/tmp/x-state DVM_NO_DETECT=1 unix/dvm install runtime 
 - Windows: not yet run on a real machine. The checklist is at the end of
   `windows/README.md`; keep it current when you change Windows-only code.
 - macOS: never run on a real Mac; only bash 3.2 compatibility is tested.
-- When you bump the version, change `DVM_VERSION` and `$DvmVersion`
-  together, and `tests/expected/version.txt`.
-- Releasing: after the version bump is on `master`, run
-  `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` refuses a tag
-  that doesn't match both scripts. Until the first release exists, the
-  installers install from `master`.
+- Version bump: edit `VERSION` only.
+- Releasing:
+  1. Push the bump to `master` and wait for green CI.
+  2. Run `git tag "v$(cat VERSION)" && git push origin "v$(cat VERSION)"`.
+
+  `release.yml` refuses a tag that isn't `v` plus `VERSION`. Until the
+  first release exists, the installers install from `master` and
+  `dvm update` reports that there's no release.
+- There are no build steps on purpose: each OS's dvm is one source file that
+  runs as it is from a clone. Only the version is written in at install and
+  release time.
 
 ## Style
 
