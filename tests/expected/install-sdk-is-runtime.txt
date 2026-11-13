@@ -1,0 +1,2 @@
+dvm: 10.0.15 is a runtime, not an SDK. Install it with: dvm install runtime 10.0.15
+exit=1

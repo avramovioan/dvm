@@ -1,0 +1,682 @@
+{
+  "channel-version": "9.0",
+  "releases": [
+    {
+      "release-date": "2026-11-10",
+      "release-version": "9.0.23",
+      "runtime": {
+        "version": "9.0.23"
+      },
+      "sdk": {
+        "version": "9.0.321",
+        "runtime-version": "9.0.23"
+      },
+      "sdks": [
+        {
+          "version": "9.0.321",
+          "runtime-version": "9.0.23"
+        },
+        {
+          "version": "9.0.124",
+          "runtime-version": "9.0.23"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-10-25",
+      "release-version": "9.0.22",
+      "runtime": {
+        "version": "9.0.22"
+      },
+      "sdk": {
+        "version": "9.0.320",
+        "runtime-version": "9.0.22"
+      },
+      "sdks": [
+        {
+          "version": "9.0.320",
+          "runtime-version": "9.0.22"
+        },
+        {
+          "version": "9.0.123",
+          "runtime-version": "9.0.22"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-10-13",
+      "release-version": "9.0.21",
+      "runtime": {
+        "version": "9.0.21"
+      },
+      "sdk": {
+        "version": "9.0.319",
+        "runtime-version": "9.0.21"
+      },
+      "sdks": [
+        {
+          "version": "9.0.319",
+          "runtime-version": "9.0.21"
+        },
+        {
+          "version": "9.0.122",
+          "runtime-version": "9.0.21"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-09-08",
+      "release-version": "9.0.20",
+      "runtime": {
+        "version": "9.0.20"
+      },
+      "sdk": {
+        "version": "9.0.318",
+        "runtime-version": "9.0.20"
+      },
+      "sdks": [
+        {
+          "version": "9.0.318",
+          "runtime-version": "9.0.20"
+        },
+        {
+          "version": "9.0.121",
+          "runtime-version": "9.0.20"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-08-11",
+      "release-version": "9.0.19",
+      "runtime": {
+        "version": "9.0.19"
+      },
+      "sdk": {
+        "version": "9.0.317",
+        "runtime-version": "9.0.19"
+      },
+      "sdks": [
+        {
+          "version": "9.0.317",
+          "runtime-version": "9.0.19"
+        },
+        {
+          "version": "9.0.120",
+          "runtime-version": "9.0.19"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-07-14",
+      "release-version": "9.0.18",
+      "runtime": {
+        "version": "9.0.18"
+      },
+      "sdk": {
+        "version": "9.0.316",
+        "runtime-version": "9.0.18"
+      },
+      "sdks": [
+        {
+          "version": "9.0.316",
+          "runtime-version": "9.0.18"
+        },
+        {
+          "version": "9.0.119",
+          "runtime-version": "9.0.18"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-06-09",
+      "release-version": "9.0.17",
+      "runtime": {
+        "version": "9.0.17"
+      },
+      "sdk": {
+        "version": "9.0.315",
+        "runtime-version": "9.0.17"
+      },
+      "sdks": [
+        {
+          "version": "9.0.315",
+          "runtime-version": "9.0.17"
+        },
+        {
+          "version": "9.0.118",
+          "runtime-version": "9.0.17"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-05-12",
+      "release-version": "9.0.16",
+      "runtime": {
+        "version": "9.0.16"
+      },
+      "sdk": {
+        "version": "9.0.314",
+        "runtime-version": "9.0.16"
+      },
+      "sdks": [
+        {
+          "version": "9.0.314",
+          "runtime-version": "9.0.16"
+        },
+        {
+          "version": "9.0.117",
+          "runtime-version": "9.0.16"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-04-14",
+      "release-version": "9.0.15",
+      "runtime": {
+        "version": "9.0.15"
+      },
+      "sdk": {
+        "version": "9.0.313",
+        "runtime-version": "9.0.15"
+      },
+      "sdks": [
+        {
+          "version": "9.0.313",
+          "runtime-version": "9.0.15"
+        },
+        {
+          "version": "9.0.116",
+          "runtime-version": "9.0.15"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-03-10",
+      "release-version": "9.0.14",
+      "runtime": {
+        "version": "9.0.14"
+      },
+      "sdk": {
+        "version": "9.0.312",
+        "runtime-version": "9.0.14"
+      },
+      "sdks": [
+        {
+          "version": "9.0.312",
+          "runtime-version": "9.0.14"
+        },
+        {
+          "version": "9.0.115",
+          "runtime-version": "9.0.14"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-02-10",
+      "release-version": "9.0.13",
+      "runtime": {
+        "version": "9.0.13"
+      },
+      "sdk": {
+        "version": "9.0.311",
+        "runtime-version": "9.0.13"
+      },
+      "sdks": [
+        {
+          "version": "9.0.311",
+          "runtime-version": "9.0.13"
+        },
+        {
+          "version": "9.0.114",
+          "runtime-version": "9.0.13"
+        }
+      ]
+    },
+    {
+      "release-date": "2026-01-20",
+      "release-version": "9.0.12",
+      "runtime": {
+        "version": "9.0.12"
+      },
+      "sdk": {
+        "version": "9.0.310",
+        "runtime-version": "9.0.12"
+      },
+      "sdks": [
+        {
+          "version": "9.0.310",
+          "runtime-version": "9.0.12"
+        },
+        {
+          "version": "9.0.309",
+          "runtime-version": "9.0.12"
+        },
+        {
+          "version": "9.0.113",
+          "runtime-version": "9.0.12"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-11-19",
+      "release-version": "9.0.11",
+      "runtime": {
+        "version": "9.0.11"
+      },
+      "sdk": {
+        "version": "9.0.308",
+        "runtime-version": "9.0.11"
+      },
+      "sdks": [
+        {
+          "version": "9.0.308",
+          "runtime-version": "9.0.11"
+        },
+        {
+          "version": "9.0.307",
+          "runtime-version": "9.0.11"
+        },
+        {
+          "version": "9.0.112",
+          "runtime-version": "9.0.11"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-10-14",
+      "release-version": "9.0.10",
+      "runtime": {
+        "version": "9.0.10"
+      },
+      "sdk": {
+        "version": "9.0.306",
+        "runtime-version": "9.0.10"
+      },
+      "sdks": [
+        {
+          "version": "9.0.306",
+          "runtime-version": "9.0.10"
+        },
+        {
+          "version": "9.0.111",
+          "runtime-version": "9.0.10"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-09-09",
+      "release-version": "9.0.9",
+      "runtime": {
+        "version": "9.0.9"
+      },
+      "sdk": {
+        "version": "9.0.305",
+        "runtime-version": "9.0.9"
+      },
+      "sdks": [
+        {
+          "version": "9.0.305",
+          "runtime-version": "9.0.9"
+        },
+        {
+          "version": "9.0.110",
+          "runtime-version": "9.0.9"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-08-05",
+      "release-version": "9.0.8",
+      "runtime": {
+        "version": "9.0.8"
+      },
+      "sdk": {
+        "version": "9.0.304",
+        "runtime-version": "9.0.8"
+      },
+      "sdks": [
+        {
+          "version": "9.0.304",
+          "runtime-version": "9.0.8"
+        },
+        {
+          "version": "9.0.109",
+          "runtime-version": "9.0.8"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-07-17",
+      "release-version": "9.0.7",
+      "runtime": {
+        "version": "9.0.7"
+      },
+      "sdk": {
+        "version": "9.0.303",
+        "runtime-version": "9.0.7"
+      },
+      "sdks": [
+        {
+          "version": "9.0.303",
+          "runtime-version": "9.0.7"
+        },
+        {
+          "version": "9.0.302",
+          "runtime-version": "9.0.7"
+        },
+        {
+          "version": "9.0.108",
+          "runtime-version": "9.0.7"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-06-10",
+      "release-version": "9.0.6",
+      "runtime": {
+        "version": "9.0.6"
+      },
+      "sdk": {
+        "version": "9.0.301",
+        "runtime-version": "9.0.6"
+      },
+      "sdks": [
+        {
+          "version": "9.0.301",
+          "runtime-version": "9.0.6"
+        },
+        {
+          "version": "9.0.205",
+          "runtime-version": "9.0.6"
+        },
+        {
+          "version": "9.0.107",
+          "runtime-version": "9.0.6"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-05-13",
+      "release-version": "9.0.5",
+      "runtime": {
+        "version": "9.0.5"
+      },
+      "sdk": {
+        "version": "9.0.300",
+        "runtime-version": "9.0.5"
+      },
+      "sdks": [
+        {
+          "version": "9.0.300",
+          "runtime-version": "9.0.5"
+        },
+        {
+          "version": "9.0.204",
+          "runtime-version": "9.0.5"
+        },
+        {
+          "version": "9.0.106",
+          "runtime-version": "9.0.5"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-04-08",
+      "release-version": "9.0.4",
+      "runtime": {
+        "version": "9.0.4"
+      },
+      "sdk": {
+        "version": "9.0.203",
+        "runtime-version": "9.0.4"
+      },
+      "sdks": [
+        {
+          "version": "9.0.203",
+          "runtime-version": "9.0.4"
+        },
+        {
+          "version": "9.0.105",
+          "runtime-version": "9.0.4"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-03-11",
+      "release-version": "9.0.3",
+      "runtime": {
+        "version": "9.0.3"
+      },
+      "sdk": {
+        "version": "9.0.202",
+        "runtime-version": "9.0.3"
+      },
+      "sdks": [
+        {
+          "version": "9.0.202",
+          "runtime-version": "9.0.3"
+        },
+        {
+          "version": "9.0.201",
+          "runtime-version": "9.0.3"
+        },
+        {
+          "version": "9.0.104",
+          "runtime-version": "9.0.3"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-02-11",
+      "release-version": "9.0.2",
+      "runtime": {
+        "version": "9.0.2"
+      },
+      "sdk": {
+        "version": "9.0.200",
+        "runtime-version": "9.0.2"
+      },
+      "sdks": [
+        {
+          "version": "9.0.200",
+          "runtime-version": "9.0.2"
+        },
+        {
+          "version": "9.0.103",
+          "runtime-version": "9.0.2"
+        }
+      ]
+    },
+    {
+      "release-date": "2025-01-14",
+      "release-version": "9.0.1",
+      "runtime": {
+        "version": "9.0.1"
+      },
+      "sdk": {
+        "version": "9.0.102",
+        "runtime-version": "9.0.1"
+      },
+      "sdks": [
+        {
+          "version": "9.0.102",
+          "runtime-version": "9.0.1"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-12-03",
+      "release-version": "9.0.0",
+      "runtime": {
+        "version": "9.0.0"
+      },
+      "sdk": {
+        "version": "9.0.101",
+        "runtime-version": "9.0.0"
+      },
+      "sdks": [
+        {
+          "version": "9.0.101",
+          "runtime-version": "9.0.0"
+        },
+        {
+          "version": "9.0.100",
+          "runtime-version": "9.0.0"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-10-08",
+      "release-version": "9.0.0-rc.2",
+      "runtime": {
+        "version": "9.0.0-rc.2.24473.5"
+      },
+      "sdk": {
+        "version": "9.0.100-rc.2.24474.11",
+        "runtime-version": "9.0.0-rc.2.24473.5"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-rc.2.24474.11",
+          "runtime-version": "9.0.0-rc.2.24473.5"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-09-10",
+      "release-version": "9.0.0-rc.1",
+      "runtime": {
+        "version": "9.0.0-rc.1.24431.7"
+      },
+      "sdk": {
+        "version": "9.0.100-rc.1.24452.12",
+        "runtime-version": "9.0.0-rc.1.24431.7"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-rc.1.24452.12",
+          "runtime-version": "9.0.0-rc.1.24431.7"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-08-13",
+      "release-version": "9.0.0-preview.7",
+      "runtime": {
+        "version": "9.0.0-preview.7.24405.7"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.7.24407.12",
+        "runtime-version": "9.0.0-preview.7.24405.7"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.7.24407.12",
+          "runtime-version": "9.0.0-preview.7.24405.7"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-07-09",
+      "release-version": "9.0.0-preview.6",
+      "runtime": {
+        "version": "9.0.0-preview.6.24327.7"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.6.24328.19",
+        "runtime-version": "9.0.0-preview.6.24327.7"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.6.24328.19",
+          "runtime-version": "9.0.0-preview.6.24327.7"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-06-11",
+      "release-version": "9.0.0-preview.5",
+      "runtime": {
+        "version": "9.0.0-preview.5.24306.7"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.5.24307.3",
+        "runtime-version": "9.0.0-preview.5.24306.7"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.5.24307.3",
+          "runtime-version": "9.0.0-preview.5.24306.7"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-05-21",
+      "release-version": "9.0.0-preview.4",
+      "runtime": {
+        "version": "9.0.0-preview.4.24266.19"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.4.24267.66",
+        "runtime-version": "9.0.0-preview.4.24266.19"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.4.24267.66",
+          "runtime-version": "9.0.0-preview.4.24266.19"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-04-11",
+      "release-version": "9.0.0-preview.3",
+      "runtime": {
+        "version": "9.0.0-preview.3.24172.9"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.3.24204.13",
+        "runtime-version": "9.0.0-preview.3.24172.9"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.3.24204.13",
+          "runtime-version": "9.0.0-preview.3.24172.9"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-03-12",
+      "release-version": "9.0.0-preview.2",
+      "runtime": {
+        "version": "9.0.0-preview.2.24128.5"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.2.24157.14",
+        "runtime-version": "9.0.0-preview.2.24128.5"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.2.24157.14",
+          "runtime-version": "9.0.0-preview.2.24128.5"
+        }
+      ]
+    },
+    {
+      "release-date": "2024-02-13",
+      "release-version": "9.0.0-preview.1",
+      "runtime": {
+        "version": "9.0.0-preview.1.24080.9"
+      },
+      "sdk": {
+        "version": "9.0.100-preview.1.24101.2",
+        "runtime-version": "9.0.0-preview.1.24080.9"
+      },
+      "sdks": [
+        {
+          "version": "9.0.100-preview.1.24101.2",
+          "runtime-version": "9.0.0-preview.1.24080.9"
+        }
+      ]
+    }
+  ]
+}

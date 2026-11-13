@@ -1,0 +1,25 @@
+# Runs the shared test cases on every OS dvm supports.
+name: test
+on: [push, pull_request]
+jobs:
+  unix:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests (bash on Linux, /bin/bash 3.2 on macOS)
+        run: |
+          if [ "$(uname -s)" = Darwin ]; then export DVM_TEST_BASH=/bin/bash; fi
+          tests/run-unix.sh
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests (Windows PowerShell 5.1)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-windows.ps1
+      - name: dvm.cmd starts dvm
+        shell: cmd
+        run: windows\dvm.cmd version

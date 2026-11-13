@@ -1,0 +1,2 @@
+dvm: don't know how to install 'banana'; use lts, a channel (10.0) or an SDK version (10.0.404)
+exit=1

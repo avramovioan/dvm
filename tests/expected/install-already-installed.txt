@@ -1,0 +1,2 @@
+✔ SDK 10.0.404 is already installed in <ROOT>
+exit=0

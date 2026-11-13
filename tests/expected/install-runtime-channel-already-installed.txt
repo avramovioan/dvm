@@ -1,0 +1,4 @@
+✔ Runtime 8.0.34 is already installed in <ROOT>
+exit=0
+--- kept runtimes:
+8.0.34

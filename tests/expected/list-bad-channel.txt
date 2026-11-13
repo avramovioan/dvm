@@ -1,0 +1,2 @@
+dvm: expected a channel like 10.0, got 'ten'
+exit=1

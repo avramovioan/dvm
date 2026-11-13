@@ -1,0 +1,2 @@
+dvm: 10.0.999 is not a released .NET SDK (see: dvm list 10.0)
+exit=1

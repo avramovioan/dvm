@@ -1,0 +1,6 @@
+✔ Runtime 10.0.15 is already installed in <ROOT>
+  It came with SDK 10.0.404; from now on it stays when you remove that SDK.
+exit=0
+--- kept runtimes:
+8.0.34
+10.0.15

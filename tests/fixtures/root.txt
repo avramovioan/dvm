@@ -1,0 +1,42 @@
+# Layout of the fake dotnet folder used by the tests.
+# sdk <version> <runtime>   creates sdk/<version>/dotnet.runtimeconfig.json
+# dir <path>                creates an empty folder
+#
+# 10.0.303 came with runtime 10.0.11, which was removed later: it runs on
+# 10.0.15 now. 8.0.22 is a runtime installed without an SDK, and
+# fixtures/state/runtimes says 8.0.34 was installed with 'dvm install runtime'.
+# Microsoft.WindowsDesktop.App is what a Windows folder has; elsewhere it is
+# just one more framework folder.
+sdk 10.0.404 10.0.15
+sdk 10.0.303 10.0.11
+sdk 10.0.110 10.0.10
+sdk 8.0.428 8.0.34
+dir shared/Microsoft.NETCore.App/10.0.15
+dir shared/Microsoft.NETCore.App/10.0.10
+dir shared/Microsoft.NETCore.App/8.0.34
+dir shared/Microsoft.NETCore.App/8.0.22
+dir shared/Microsoft.AspNetCore.App/10.0.15
+dir shared/Microsoft.AspNetCore.App/10.0.10
+dir shared/Microsoft.AspNetCore.App/8.0.34
+dir shared/Microsoft.AspNetCore.App/8.0.22
+dir shared/Microsoft.WindowsDesktop.App/10.0.15
+dir shared/Microsoft.WindowsDesktop.App/10.0.10
+dir shared/Microsoft.WindowsDesktop.App/8.0.34
+dir shared/Microsoft.WindowsDesktop.App/8.0.22
+dir packs/Microsoft.NETCore.App.Ref/10.0.15
+dir packs/Microsoft.NETCore.App.Ref/10.0.11
+dir packs/Microsoft.NETCore.App.Ref/10.0.10
+dir packs/Microsoft.NETCore.App.Ref/8.0.34
+dir packs/NETStandard.Library.Ref/2.1.0
+dir host/fxr/10.0.15
+dir host/fxr/10.0.10
+dir host/fxr/8.0.34
+dir host/fxr/8.0.22
+dir templates/10.0.15
+dir templates/10.0.11
+dir templates/10.0.10
+dir templates/8.0.34
+dir sdk-manifests/10.0.100
+dir sdk-manifests/10.0.300
+dir sdk-manifests/10.0.400
+dir sdk-manifests/8.0.400

@@ -1,0 +1,27 @@
+.NET LTS releases, newest first    ✔ = installed in <ROOT>
+
+10.0  LTS · active, supported until 2028-11-14
+  Runtimes
+    ✔ 10.0.15     2026-11-10  latest  (comes with SDK 10.0.404)
+    ✔ 10.0.10     2026-07-14  (comes with SDK 10.0.110)
+  SDKs
+    ✔ 10.0.404    2026-11-10  latest
+    ✔ 10.0.303    2026-08-11  latest 10.0.3xx
+      10.0.204    2026-05-12  latest 10.0.2xx
+      10.0.115    2026-11-10  latest 10.0.1xx
+    ✔ 10.0.110    2026-07-14
+
+8.0  LTS · end of life since 2026-11-10
+  Runtimes
+    ✔ 8.0.34      2026-11-10  latest  (runtime only)
+    ✔ 8.0.22      2025-11-11  (runtime only)
+  SDKs
+    ✔ 8.0.428     2026-11-10  latest
+      8.0.319     2025-11-11  latest 8.0.3xx
+      8.0.206     2024-06-11  latest 8.0.2xx
+      8.0.134     2026-11-10  latest 8.0.1xx
+
+1 end-of-life LTS channel(s) hidden: 6.0  (dvm list --all)
+Everything in one channel: dvm list 10.0
+Install an SDK: dvm install <lts | 10.0 | 10.0.404>    Only a runtime: dvm install runtime <lts | 10.0 | 10.0.15>
+exit=0

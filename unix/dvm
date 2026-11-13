@@ -1,0 +1,1019 @@
+#!/usr/bin/env bash
+# dvm - .NET SDK and runtime version manager for Linux and macOS.
+#
+# Manages the system's standard .NET folder (/usr/share/dotnet on Linux,
+# /usr/local/share/dotnet on macOS), so SDKs and runtimes already installed
+# there are picked up as they are. Installs Microsoft's builds side by side
+# with Microsoft's dotnet-install.sh; the dotnet host then picks the right
+# SDK/runtime per project.
+#
+# Needs only bash 3.2+, curl (or wget), grep, awk, sed and tar.
+# Run it as your normal user: it asks for sudo only for the steps that
+# write to system folders.
+
+set -u
+
+DVM_VERSION="1.1.0"
+META_URL="${DVM_META_URL:-https://builds.dotnet.microsoft.com/dotnet/release-metadata}"
+INSTALL_SCRIPT_URL="https://dot.net/v1/dotnet-install.sh"
+META_TTL_MIN=60       # release metadata is refreshed hourly
+SCRIPT_TTL_MIN=1440   # dotnet-install.sh is refreshed daily
+
+case "$(uname -s)" in
+  Darwin) OS=macos; DEFAULT_ROOT=/usr/local/share/dotnet ;;
+  *)      OS=linux; DEFAULT_ROOT=/usr/share/dotnet ;;
+esac
+ROOT="${DVM_ROOT:-$DEFAULT_ROOT}"
+ROOT="${ROOT%/}"
+CACHE="${DVM_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/dvm}"
+STATE="${DVM_STATE:-${XDG_CONFIG_HOME:-$HOME/.config}/dvm}"
+SYS="${DVM_SYSROOT:-}"   # prefix for /etc and /usr/local/bin (tests only)
+
+# System links are only managed for the standard folder.
+INTEGRATE=""
+if [ "$ROOT" = "$DEFAULT_ROOT" ] || [ -n "$SYS" ]; then INTEGRATE=1; fi
+
+STABLE_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+CHANNEL_RE='^[0-9]+\.[0-9]+$'
+ASSUME_YES=""
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_G=$'\033[32m'; C_Y=$'\033[33m'; C_B=$'\033[1m'; C_D=$'\033[2m'; C_0=$'\033[0m'
+else
+  C_G=""; C_Y=""; C_B=""; C_D=""; C_0=""
+fi
+CHECK="${C_G}✔${C_0}"
+
+# ------------------------------------------------------------------ helpers
+
+out()   { printf '%s\n' "$*"; }
+note()  { printf '%s\n' "${C_Y}$*${C_0}"; }
+dimln() { printf '%s\n' "${C_D}$*${C_0}"; }
+die()   { printf 'dvm: %s\n' "$*" >&2; exit 1; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+rtrim() { local s=$1; printf '%s' "${s%"${s##*[! ]}"}"; }
+re_escape() { printf '%s' "$1" | sed 's/[][\.*^$+?(){}|/]/\\&/g'; }
+
+# "    ✔ text" / "      text"
+markline() {
+  local m=" "; [ "$1" = 1 ] && m=$CHECK
+  printf '    %s %s\n' "$m" "$(rtrim "$2")"
+}
+
+# inlist <word> <newline-separated list>
+inlist() { printf '%s\n' "$2" | grep -qxF -- "$1"; }
+
+vsort() { sort -t. -k1,1nr -k2,2nr -k3,3nr; }
+
+interactive() { [ -t 0 ] && [ -t 1 ]; }
+
+ask() {
+  [ -n "$ASSUME_YES" ] && return 0
+  interactive || return 1
+  local a
+  printf '%s [Y/n] ' "$1"
+  read -r a || return 1
+  case "$a" in ""|y|Y|yes|Yes|YES) return 0 ;; esac
+  return 1
+}
+
+# Resolve symlinks to a real absolute path (portable readlink -f).
+realpath_() {
+  local p=$1 d
+  while [ -L "$p" ]; do
+    d=$(cd -P "$(dirname "$p")" 2>/dev/null && pwd) || return 1
+    p=$(readlink "$p")
+    case "$p" in /*) ;; *) p="$d/$p" ;; esac
+  done
+  d=$(cd -P "$(dirname "$p")" 2>/dev/null && pwd) || return 1
+  printf '%s/%s\n' "$d" "$(basename "$p")"
+}
+realdir() { (cd -P "$1" 2>/dev/null && pwd); }
+
+# Nearest existing parent of a path is writable by us?
+writable() {
+  local p=$1
+  while [ ! -e "$p" ]; do p=$(dirname "$p"); done
+  [ -w "$p" ]
+}
+
+# run_priv <path it writes to> <command...>
+# Runs directly when we may write there, otherwise through sudo. If that is
+# not possible, prints the command for the user to run.
+run_priv() {
+  local target=$1; shift
+  if writable "$target" || [ "$(id -u)" -eq 0 ]; then "$@"; return; fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo "$@" && return 0
+  fi
+  printf '%s\n' "${C_Y}This step needs admin rights. Run it yourself:${C_0}" >&2
+  printf '  sudo' >&2; printf ' %q' "$@" >&2; printf '\n' >&2
+  return 1
+}
+
+dotnet_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo x64 ;;
+    arm64|aarch64) echo arm64 ;;
+    *) uname -m ;;
+  esac
+}
+
+# ------------------------------------------------------------- downloading
+
+fresh() { [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]; }
+
+download() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 2 -o "$2" "$1"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$2" "$1"
+  else
+    die "needs curl or wget to download files"
+  fi
+}
+
+# fetch <url> <dest> <ttl minutes>: keep a cached copy, fall back to it offline.
+fetch() {
+  local url=$1 dest=$2 ttl=$3
+  if [ -s "$dest" ] && { [ -n "${DVM_OFFLINE:-}" ] || fresh "$dest" "$ttl"; }; then return 0; fi
+  [ -n "${DVM_OFFLINE:-}" ] && die "offline and no cached copy of $(basename "$dest")"
+  mkdir -p "$(dirname "$dest")" || die "cannot create $(dirname "$dest")"
+  if download "$url" "$dest.tmp" 2>/dev/null; then mv -f "$dest.tmp" "$dest"; return 0; fi
+  rm -f "$dest.tmp"
+  if [ -s "$dest" ]; then dimln "(offline? using cached $(basename "$dest"))" >&2; return 0; fi
+  die "could not download $url"
+}
+
+# ------------------------------------------------------------ JSON reading
+# A tiny JSON reader so dvm needs no jq: grep splits the file into tokens,
+# awk walks them and prints "path<TAB>value" for every scalar, e.g.
+#   releases-index/0/channel-version<TAB>10.0
+
+json_flat() {
+  grep -oE '"([^"\\]|\\.)*"|[][{}:,]|[-0-9.eE+]+|true|false|null' "$1" | awk '
+    function unq(s) {
+      if (substr(s, 1, 1) == "\"") { s = substr(s, 2, length(s) - 2); gsub(/\\"/, "\"", s); gsub(/\\\//, "/", s) }
+      return s
+    }
+    function path(   i, p) {
+      p = ""
+      for (i = 1; i <= d; i++) p = p (i > 1 ? "/" : "") (t[i] == "a" ? n[i] : k[i])
+      return p
+    }
+    $0 == "{" { d++; t[d] = "o"; want[d] = 1; next }
+    $0 == "[" { d++; t[d] = "a"; n[d] = 0; next }
+    $0 == "}" || $0 == "]" { d--; next }
+    $0 == ":" { next }
+    $0 == "," { if (t[d] == "a") n[d]++; else want[d] = 1; next }
+    {
+      if (t[d] == "o" && want[d]) { k[d] = unq($0); want[d] = 0 }
+      else print path() "\t" unq($0)
+    }'
+}
+
+# releases-index.json -> channel, type, phase, eol, latest sdk, latest runtime, releases.json url
+parse_index() {
+  json_flat "$1" | awk -F'\t' '
+    $1 ~ /^releases-index\/[0-9]+\// {
+      split($1, p, "/"); i = p[2] + 0; f = p[3]
+      if (f == "channel-version") ch[i] = $2
+      else if (f == "release-type") ty[i] = $2
+      else if (f == "support-phase") ph[i] = $2
+      else if (f == "eol-date") eo[i] = $2
+      else if (f == "latest-sdk") ls[i] = $2
+      else if (f == "latest-runtime") lr[i] = $2
+      else if (f == "releases.json") ur[i] = $2
+      if (i + 1 > m) m = i + 1
+    }
+    function v(x) { return x == "" ? "-" : x }
+    END { for (i = 0; i < m; i++) if (ch[i] != "")
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ch[i], v(ty[i]), v(ph[i]), v(eo[i]), v(ls[i]), v(lr[i]), v(ur[i]) }
+  ' | sort -t. -k1,1nr -k2,2nr
+}
+
+# <channel>/releases.json -> two kinds of lines:
+#   S<TAB>sdk version<TAB>its runtime<TAB>release date
+#   R<TAB>runtime version<TAB>release date
+parse_channel() {
+  json_flat "$1" | awk -F'\t' -v cv="$2" '
+    $1 ~ /^releases\/[0-9]+\/release-date$/ { split($1, p, "/"); date[p[2] + 0] = $2; next }
+    $1 ~ /^releases\/[0-9]+\/runtime\/version$/ { split($1, p, "/"); rtv[p[2] + 0] = $2; next }
+    $1 ~ /^releases\/[0-9]+\/sdks\/[0-9]+\/(version|runtime-version)$/ {
+      split($1, p, "/"); key = p[2] "/" p[4]; rel[key] = p[2] + 0
+      if (p[5] == "version") ver[key] = $2; else rt[key] = $2
+      next
+    }
+    $1 ~ /^releases\/[0-9]+\/sdk\/(version|runtime-version)$/ {
+      split($1, p, "/"); key = p[2] "/s"; rel[key] = p[2] + 0
+      if (p[4] == "version") ver[key] = $2; else rt[key] = $2
+    }
+    END {
+      for (key in ver) {
+        x = ver[key]
+        if (x !~ /^[0-9]+\.[0-9]+\.[0-9]+$/ || index(x, cv ".") != 1) continue
+        if ((x in best) && best[x] <= rel[key]) continue
+        best[x] = rel[key]; brt[x] = rt[key]
+      }
+      for (x in best) printf "S\t%s\t%s\t%s\n", x, (brt[x] == "" ? "-" : brt[x]), (date[best[x]] == "" ? "-" : date[best[x]])
+      for (i in rtv) {
+        x = rtv[i]
+        if (x !~ /^[0-9]+\.[0-9]+\.[0-9]+$/ || index(x, cv ".") != 1 || (x in seen)) continue
+        seen[x] = 1
+        printf "R\t%s\t%s\n", x, (date[i] == "" ? "-" : date[i])
+      }
+    }
+  '
+}
+
+# ----------------------------------------------------------- release data
+
+INDEX_TSV=""
+CH_TSV=""   # SDKs of the last channel read: version, runtime, date (newest first)
+RT_TSV=""   # runtimes of that channel: version, date (newest first)
+
+ensure_index() {
+  local j="$CACHE/releases-index.json"
+  INDEX_TSV="$CACHE/releases-index.tsv"
+  fetch "$META_URL/releases-index.json" "$j" "$META_TTL_MIN"
+  if [ ! -s "$INDEX_TSV" ] || [ "$j" -nt "$INDEX_TSV" ]; then
+    parse_index "$j" > "$INDEX_TSV.tmp" && [ -s "$INDEX_TSV.tmp" ] || die "could not read the .NET release index"
+    mv -f "$INDEX_TSV.tmp" "$INDEX_TSV"
+  fi
+}
+
+channel_known() { awk -F'\t' -v c="$1" '$1 == c { f = 1 } END { exit !f }' "$INDEX_TSV"; }
+channel_field() { awk -F'\t' -v c="$1" -v n="$2" '$1 == c { print $n; exit }' "$INDEX_TSV"; }
+
+ensure_channel() {
+  local cv=$1 url j
+  channel_known "$cv" || die "unknown .NET channel '$cv' (see: dvm list --all)"
+  url=$(channel_field "$cv" 7)
+  j="$CACHE/$cv.json"
+  CH_TSV="$CACHE/$cv.sdks.tsv"
+  RT_TSV="$CACHE/$cv.runtimes.tsv"
+  fetch "$url" "$j" "$META_TTL_MIN"
+  if [ ! -f "$CH_TSV" ] || [ ! -f "$RT_TSV" ] || [ "$j" -nt "$CH_TSV" ]; then
+    parse_channel "$j" "$cv" > "$CACHE/$cv.parsed" || die "could not read releases of $cv"
+    awk -F'\t' '$1 == "R" { print $2 "\t" $3 }' "$CACHE/$cv.parsed" | vsort > "$RT_TSV"
+    awk -F'\t' '$1 == "S" { print $2 "\t" $3 "\t" $4 }' "$CACHE/$cv.parsed" | vsort > "$CH_TSV"
+    rm -f "$CACHE/$cv.parsed"
+  fi
+}
+
+ensure_script() {
+  fetch "$INSTALL_SCRIPT_URL" "$CACHE/dotnet-install.sh" "$SCRIPT_TTL_MIN"
+}
+
+# --------------------------------------------------------- installed state
+
+# shellcheck disable=SC2010  # names are versions (digits and dots) only
+stable_dirs() { ls -1 "$1" 2>/dev/null | grep -E "$STABLE_RE" | vsort; }
+installed_sdks() { stable_dirs "$ROOT/sdk"; }
+installed_runtimes() { stable_dirs "$ROOT/shared/Microsoft.NETCore.App"; }
+
+# Who installed each SDK in ROOT: "version<TAB>label" (nothing = dvm/manual).
+sdk_owner_map() {
+  local sdks v p pk
+  sdks=$(installed_sdks); [ -n "$sdks" ] || return 0
+  if [ "$OS" = macos ]; then
+    pk=$(pkgutil --pkgs 2>/dev/null | grep '^com\.microsoft\.dotnet\.dev\.') || return 0
+    for v in $sdks; do
+      printf '%s\n' "$pk" | grep -q "^com\.microsoft\.dotnet\.dev\.$(re_escape "$v")\." && printf '%s\tmacOS installer\n' "$v"
+    done
+  elif command -v dpkg >/dev/null 2>&1; then
+    for v in $sdks; do
+      p=$(dpkg -S "$ROOT/sdk/$v" 2>/dev/null | head -n1) && [ -n "$p" ] && printf '%s\tapt: %s\n' "$v" "${p%%: *}"
+    done
+  elif command -v rpm >/dev/null 2>&1; then
+    for v in $sdks; do
+      p=$(rpm -qf --qf '%{NAME}\n' "$ROOT/sdk/$v" 2>/dev/null | head -n1) && printf '%s\trpm: %s\n' "$v" "$p"
+    done
+  fi
+  return 0
+}
+owner_in() { printf '%s\n' "$2" | awk -F'\t' -v v="$1" '$1 == v { print $2; exit }'; }
+
+# Runtime an installed SDK runs on, from its dotnet.runtimeconfig.json.
+sdk_runtime() {
+  grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$ROOT/sdk/$1/dotnet.runtimeconfig.json" 2>/dev/null \
+    | head -n1 | sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+manifest_band() { local p=${1##*.}; printf '%s.%s\n' "${1%.*}" "$(( p / 100 * 100 ))"; }
+
+# A runtime is complete when the ASP.NET Core part is there too (that is what
+# 'dvm install runtime' installs, and what every SDK brings).
+runtime_complete() { [ -d "$ROOT/shared/Microsoft.NETCore.App/$1" ] && [ -d "$ROOT/shared/Microsoft.AspNetCore.App/$1" ]; }
+
+# Runtimes installed with 'dvm install runtime': they stay when SDKs are removed.
+kept_runtimes() { [ -f "$STATE/runtimes" ] && cat "$STATE/runtimes"; return 0; }
+keep_runtime() { inlist "$1" "$(kept_runtimes)" && return 0; mkdir -p "$STATE" && printf '%s\n' "$1" >> "$STATE/runtimes"; }
+unkeep_runtime() {
+  [ -f "$STATE/runtimes" ] || return 0
+  { grep -vxF -- "$1" "$STATE/runtimes" || true; } > "$STATE/runtimes.tmp" && mv -f "$STATE/runtimes.tmp" "$STATE/runtimes"
+}
+
+# "sdk<TAB>runtime it came with" for every installed SDK.
+sdk_runtime_map() { local s; for s in $(installed_sdks); do printf '%s\t%s\n' "$s" "$(sdk_runtime "$s")"; done; }
+
+# SDKs that came with runtime $1 ($2 = sdk_runtime_map), comma separated.
+sdks_with_runtime() { printf '%s\n' "$2" | awk -F'\t' -v r="$1" '$2 == r { print $1 }' | paste -sd, - | sed 's/,/, /g'; }
+
+# An SDK runs on the runtime it came with or any newer patch of the same
+# channel (that is what its dotnet.runtimeconfig.json asks for). Prints the
+# SDKs (except $2) that no installed runtime other than $1 is new enough for,
+# as "sdk<TAB>runtime it needs at least".
+needing_sdks() {
+  local x=$1 skip=${2:-} others s rc
+  others=$(installed_runtimes | grep -vxF "$x")
+  while IFS=$'\t' read -r s rc; do
+    [ -n "$s" ] && [ "$s" != "$skip" ] || continue
+    [[ "$rc" =~ $STABLE_RE ]] && [ "${rc%.*}" = "${x%.*}" ] && [ "${x##*.}" -ge "${rc##*.}" ] || continue
+    printf '%s\n' "$others" | awk -F. -v c="${rc%.*}" -v p="${rc##*.}" '($1 "." $2) == c && $3 + 0 >= p + 0 { f = 1 } END { exit !f }' \
+      || printf '%s\t%s\n' "$s" "$rc"
+  done <<EOF
+$(sdk_runtime_map)
+EOF
+}
+
+# Packages that own runtime $1's folders, space separated (Linux).
+runtime_packages() {
+  local d
+  for d in "$ROOT"/shared/*/"$1"; do
+    [ -d "$d" ] || continue
+    if command -v dpkg >/dev/null 2>&1; then dpkg -S "$d" 2>/dev/null | sed -n 's/: .*//p'
+    elif command -v rpm >/dev/null 2>&1; then rpm -qf --qf '%{NAME}\n' "$d" 2>/dev/null | grep -v 'not owned'
+    fi
+  done | tr ',' '\n' | tr -d ' ' | grep . | sort -u | paste -sd' ' -
+}
+
+# Installer receipts of runtime $1 (macOS); SDK receipts are .dev.
+runtime_receipts() {
+  pkgutil --pkgs 2>/dev/null | grep '^com\.microsoft\.dotnet\.' | grep -v '^com\.microsoft\.dotnet\.dev\.' \
+    | grep "\.$(re_escape "$1")\." || true
+}
+
+# Who installed each runtime in ROOT: "version<TAB>label" (nothing = dvm/manual).
+runtime_owner_map() {
+  local v p
+  for v in $(installed_runtimes); do
+    if [ "$OS" = macos ]; then
+      [ -n "$(runtime_receipts "$v")" ] && printf '%s\tmacOS installer\n' "$v"
+    else
+      p=$(runtime_packages "$v")
+      [ -n "$p" ] && printf '%s\t%s: %s\n' "$v" "$(command -v dpkg >/dev/null 2>&1 && echo apt || echo rpm)" "$p"
+    fi
+  done
+  return 0
+}
+
+# Folders of runtime $1: shared/<framework>/<version>, and host/fxr/<version>
+# unless it is the newest host (the dotnet command always uses the newest).
+runtime_paths() {
+  local d top
+  for d in "$ROOT"/shared/*; do [ -d "$d/$1" ] && printf '%s\n' "$d/$1"; done
+  top=$(stable_dirs "$ROOT/host/fxr" | head -n1)
+  [ -d "$ROOT/host/fxr/$1" ] && [ "$top" != "$1" ] && printf '%s\n' "$ROOT/host/fxr/$1"
+  return 0
+}
+
+# --------------------------------------------------------------- printing
+
+channel_header() { # cv type phase eol
+  if [ "$3" = eol ]; then
+    printf '%s\n' "${C_Y}$1  $(upper "$2") · end of life since $4${C_0}"
+  else
+    printf '%s\n' "${C_B}$1  $(upper "$2") · $3, supported until $4${C_0}"
+  fi
+}
+
+section() { printf '  %s\n' "$1"; }
+
+row() { # version date installed note label
+  local rest
+  rest=$(printf '%-10s  %-10s' "$1" "$2")
+  [ -n "$4" ] && rest="$rest  ${C_D}$4${C_0}"
+  [ -n "$5" ] && rest="$rest  ($5)"
+  markline "$3" "$rest"
+}
+
+runtime_label() { # version sdk_runtime_map kept_runtimes runtime_owner_map
+  local with l o
+  with=$(sdks_with_runtime "$1" "$2")
+  if [ -n "$with" ] && ! inlist "$1" "$3"; then l="comes with SDK $with"; else l="runtime only"; fi
+  o=$(owner_in "$1" "$4")
+  [ -n "$o" ] && l="$l; $o"
+  printf '%s' "$l"
+}
+
+# Runtime rows of the channel in RT_TSV: all of them, or ($6 = brief) only
+# the latest one plus the installed ones.
+runtime_rows() { # installed latest map kept owners [brief]
+  local v date ok printed=" "
+  while IFS=$'\t' read -r v date; do
+    ok=""; inlist "$v" "$1" && ok=1
+    [ -z "${6:-}" ] || [ "$v" = "$2" ] || [ -n "$ok" ] || continue
+    row "$v" "$date" "$ok" "$([ "$v" = "$2" ] && echo latest)" "$([ -n "$ok" ] && runtime_label "$v" "$3" "$4" "$5")"
+    printed="$printed$v "
+  done < "$RT_TSV"
+  [ -n "${6:-}" ] || return 0
+  for v in $1; do
+    case "$printed" in *" $v "*) continue ;; esac
+    row "$v" "-" 1 "not in Microsoft's release list" "$(runtime_label "$v" "$3" "$4" "$5")"
+  done
+}
+
+# ---------------------------------------------------------------- commands
+
+cmd_list() {
+  local all="" chan="" a
+  for a in "$@"; do
+    case "$a" in
+      --all) all=1 ;;
+      -*) die "unknown option '$a'" ;;
+      *) chan=$a ;;
+    esac
+  done
+  ensure_index
+  if [ -n "$chan" ]; then list_channel "$chan"; return; fi
+
+  local sdks rts owners rowners map kept hidden="" cv type phase eol lsdk lrt url mine minert
+  sdks=$(installed_sdks); rts=$(installed_runtimes); owners=$(sdk_owner_map)
+  rowners=$(runtime_owner_map); map=$(sdk_runtime_map); kept=$(kept_runtimes)
+  out "${C_B}.NET LTS releases${C_0}, newest first    $CHECK = installed in $ROOT"
+  while IFS=$'\t' read -r cv type phase eol lsdk lrt url; do
+    [ "$type" = lts ] || continue
+    case "$phase" in preview|go-live) continue ;; esac
+    mine=$(printf '%s\n' "$sdks" | grep "^$(re_escape "$cv")\." || true)
+    minert=$(printf '%s\n' "$rts" | grep "^$(re_escape "$cv")\." || true)
+    if [ "$phase" = eol ] && [ -z "$all" ] && [ -z "$mine" ] && [ -z "$minert" ]; then
+      hidden="${hidden:+$hidden, }$cv"; continue
+    fi
+    out ""
+    channel_header "$cv" "$type" "$phase" "$eol"
+    ensure_channel "$cv"
+    section Runtimes
+    runtime_rows "$minert" "$lrt" "$map" "$kept" "$rowners" brief
+    section SDKs
+    local bands=" " printed=" " v rt date p b first ok nt
+    while IFS=$'\t' read -r v rt date; do
+      p=${v##*.}; b=$(( p / 100 ))
+      first=""; case "$bands" in *" $b "*) ;; *) first=1; bands="$bands$b " ;; esac
+      ok=""; inlist "$v" "$mine" && ok=1
+      [ -n "$first" ] || [ -n "$ok" ] || continue
+      nt=""
+      if [ "$v" = "$lsdk" ]; then nt=latest; elif [ -n "$first" ]; then nt="latest $cv.${b}xx"; fi
+      row "$v" "$date" "$ok" "$nt" "$(owner_in "$v" "$owners")"
+      printed="$printed$v "
+    done < "$CH_TSV"
+    for v in $mine; do
+      case "$printed" in *" $v "*) continue ;; esac
+      row "$v" "-" 1 "not in Microsoft's release list" "$(owner_in "$v" "$owners")"
+    done
+  done < "$INDEX_TSV"
+
+  out ""
+  if [ -n "$hidden" ]; then
+    local n; n=$(printf '%s' "$hidden" | tr ',' '\n' | grep -c .)
+    dimln "$n end-of-life LTS channel(s) hidden: $hidden  (dvm list --all)"
+  fi
+  dimln "Everything in one channel: dvm list 10.0"
+  dimln "Install an SDK: dvm install <lts | 10.0 | 10.0.404>    Only a runtime: dvm install runtime <lts | 10.0 | 10.0.15>"
+  post_checks
+}
+
+list_channel() {
+  local cv=$1 sdks owners v rt date lsdk
+  [[ "$cv" =~ $CHANNEL_RE ]] || die "expected a channel like 10.0, got '$cv'"
+  channel_known "$cv" || die "unknown .NET channel '$cv' (see: dvm list --all)"
+  sdks=$(installed_sdks); owners=$(sdk_owner_map); lsdk=$(channel_field "$cv" 5)
+  out "$(channel_header "$cv" "$(channel_field "$cv" 2)" "$(channel_field "$cv" 3)" "$(channel_field "$cv" 4)")    $CHECK = installed in $ROOT"
+  ensure_channel "$cv"
+  section Runtimes
+  runtime_rows "$(installed_runtimes)" "$(channel_field "$cv" 6)" "$(sdk_runtime_map)" "$(kept_runtimes)" "$(runtime_owner_map)"
+  section SDKs
+  while IFS=$'\t' read -r v rt date; do
+    row "$v" "$date" "$(inlist "$v" "$sdks" && echo 1)" "$([ "$v" = "$lsdk" ] && echo latest)" "$(owner_in "$v" "$owners")"
+  done < "$CH_TSV"
+}
+
+RESOLVED=""
+resolve_version() { # lts | 10.0 | 10.0.404  ->  RESOLVED
+  local want=$1 cv
+  RESOLVED=""
+  if [ "$want" = lts ]; then
+    RESOLVED=$(awk -F'\t' '$2 == "lts" && $3 != "eol" && $3 != "preview" && $3 != "go-live" { print $5; exit }' "$INDEX_TSV")
+    [ -n "$RESOLVED" ] || die "no supported LTS release found in the release index"
+  elif [[ "$want" =~ $CHANNEL_RE ]]; then
+    channel_known "$want" || die "unknown .NET channel '$want' (see: dvm list --all)"
+    RESOLVED=$(channel_field "$want" 5)
+  elif [[ "$want" =~ $STABLE_RE ]]; then
+    cv=${want%.*}
+    channel_known "$cv" || die "unknown .NET channel '$cv' (see: dvm list --all)"
+    ensure_channel "$cv"
+    if ! cut -f1 "$CH_TSV" | grep -qxF "$want"; then
+      cut -f1 "$RT_TSV" | grep -qxF "$want" && die "$want is a runtime, not an SDK. Install it with: dvm install runtime $want"
+      die "$want is not a released .NET SDK (see: dvm list $cv)"
+    fi
+    RESOLVED=$want
+  else
+    die "don't know how to install '$1'; use lts, a channel (10.0) or an SDK version (10.0.404)"
+  fi
+}
+
+resolve_runtime() { # lts | 10.0 | 10.0.15  ->  RESOLVED
+  local want=$1 cv
+  RESOLVED=""
+  if [ "$want" = lts ]; then
+    RESOLVED=$(awk -F'\t' '$2 == "lts" && $3 != "eol" && $3 != "preview" && $3 != "go-live" { print $6; exit }' "$INDEX_TSV")
+    [ -n "$RESOLVED" ] || die "no supported LTS release found in the release index"
+  elif [[ "$want" =~ $CHANNEL_RE ]]; then
+    channel_known "$want" || die "unknown .NET channel '$want' (see: dvm list --all)"
+    RESOLVED=$(channel_field "$want" 6)
+  elif [[ "$want" =~ $STABLE_RE ]]; then
+    cv=${want%.*}
+    channel_known "$cv" || die "unknown .NET channel '$cv' (see: dvm list --all)"
+    ensure_channel "$cv"
+    if ! cut -f1 "$RT_TSV" | grep -qxF "$want"; then
+      cut -f1 "$CH_TSV" | grep -qxF "$want" && die "$want is an SDK, not a runtime. Install it with: dvm install $want"
+      die "$want is not a released .NET runtime (see: dvm list $cv)"
+    fi
+    RESOLVED=$want
+  else
+    die "don't know how to install runtime '$1'; use lts, a channel (10.0) or a runtime version (10.0.15)"
+  fi
+  [[ "$RESOLVED" =~ $STABLE_RE ]] || die "channel $want has no released runtime"
+}
+
+# dotnet-install.sh replaces the dotnet command and other unversioned files
+# with the ones of the version it installs. Keep them when a newer (or the
+# same) host is already there, so installing an older version can't
+# downgrade the dotnet command.
+skip_flag() { # runtime version being installed
+  local top; top=$(stable_dirs "$ROOT/host/fxr" | head -n1)
+  [ -n "$top" ] && [ "$(printf '%s\n%s\n' "$top" "$1" | vsort | head -n1)" = "$top" ] && echo --skip-non-versioned-files
+  return 0
+}
+
+do_install() {
+  local v=$1 rt
+  ensure_channel "${v%.*}"
+  rt=$(awk -F'\t' -v v="$v" '$1 == v { print $2; exit }' "$CH_TSV")
+  ensure_script
+  out "Installing .NET SDK ${C_B}$v${C_0} into $ROOT ..."
+  # shellcheck disable=SC2046  # the flag is empty or one word
+  run_priv "$ROOT" bash "$CACHE/dotnet-install.sh" --version "$v" --install-dir "$ROOT" --no-path $(skip_flag "$rt") \
+    || die "installing SDK $v failed"
+  out "$CHECK SDK $v installed"
+}
+
+do_install_runtime() {
+  local v=$1
+  ensure_script
+  out "Installing .NET runtime ${C_B}$v${C_0} (with ASP.NET Core) into $ROOT ..."
+  # shellcheck disable=SC2046  # the flag is empty or one word
+  run_priv "$ROOT" bash "$CACHE/dotnet-install.sh" --runtime aspnetcore --version "$v" --install-dir "$ROOT" --no-path $(skip_flag "$v") \
+    || die "installing runtime $v failed"
+  out "$CHECK Runtime $v installed"
+}
+
+cmd_install() {
+  local kind=sdk with
+  if [ "${1:-}" = runtime ]; then kind=runtime; shift; fi
+  [ $# -eq 1 ] || die "usage: dvm install <lts | 10.0 | 10.0.404>  or  dvm install runtime <lts | 10.0 | 10.0.15>"
+  ensure_index
+  if [ "$kind" = runtime ]; then
+    resolve_runtime "$(lower "$1")"
+    if runtime_complete "$RESOLVED"; then
+      out "$CHECK Runtime $RESOLVED is already installed in $ROOT"
+      with=$(sdks_with_runtime "$RESOLVED" "$(sdk_runtime_map)")
+      if [ -n "$with" ] && ! inlist "$RESOLVED" "$(kept_runtimes)"; then
+        out "  It came with SDK $with; from now on it stays when you remove that SDK."
+      fi
+    else
+      do_install_runtime "$RESOLVED"
+    fi
+    keep_runtime "$RESOLVED"
+  else
+    resolve_version "$(lower "$1")"
+    if inlist "$RESOLVED" "$(installed_sdks)"; then
+      out "$CHECK SDK $RESOLVED is already installed in $ROOT"
+    else
+      do_install "$RESOLVED"
+    fi
+  fi
+  ensure_integration
+  check_path
+}
+
+# Folders that belong only to this SDK. Its packs and templates stay while
+# another SDK came with the same runtime. Its runtime also stays when it was
+# installed with 'dvm install runtime' or another SDK still needs it.
+removal_paths() {
+  local v=$1 rt others o used d band rtdirs=""
+  printf '%s\n' "$ROOT/sdk/$v"
+  others=$(installed_sdks | grep -vxF "$v")
+  rt=$(sdk_runtime "$v")
+  if [ -n "$rt" ]; then
+    used=""
+    for o in $others; do [ "$(sdk_runtime "$o")" = "$rt" ] && used=1; done
+    if [ -z "$used" ]; then
+      inlist "$rt" "$(kept_runtimes)" || [ -n "$(needing_sdks "$rt" "$v")" ] || rtdirs=$(runtime_paths "$rt")
+      printf '%s\n' "$rtdirs" | grep -F "$ROOT/shared/" || true
+      for d in "$ROOT"/packs/*; do [ -d "$d/$rt" ] && printf '%s\n' "$d/$rt"; done
+      [ -d "$ROOT/templates/$rt" ] && printf '%s\n' "$ROOT/templates/$rt"
+      printf '%s\n' "$rtdirs" | grep -F "$ROOT/host/" || true
+    fi
+  fi
+  band=$(manifest_band "$v"); used=""
+  for o in $others; do [ "$(manifest_band "$o")" = "$band" ] && used=1; done
+  [ -z "$used" ] && [ -d "$ROOT/sdk-manifests/$band" ] && printf '%s\n' "$ROOT/sdk-manifests/$band"
+  return 0
+}
+
+# delete_dirs <what> <paths>: show the folders, ask, delete them.
+delete_dirs() {
+  local p
+  local -a arr=()
+  out "Removing $1:"
+  printf '%s\n' "$2" | sed 's/^/  /'
+  ask "Delete these folders?" || return 1
+  while IFS= read -r p; do [ -n "$p" ] && arr+=("$p"); done <<EOF
+$2
+EOF
+  run_priv "$ROOT" rm -rf -- "${arr[@]}" || die "removing $1 failed"
+}
+
+cmd_uninstall() {
+  if [ "${1:-}" = runtime ]; then shift; uninstall_runtime "$@"; return; fi
+  [ $# -eq 1 ] || die "usage: dvm uninstall <10.0.404>  or  dvm uninstall runtime <10.0.15>"
+  local v=$1 owner pkg ids id
+  if ! inlist "$v" "$(installed_sdks)"; then
+    inlist "$v" "$(installed_runtimes)" && die "$v is a runtime, not an SDK. Remove it with: dvm uninstall runtime $v"
+    die "SDK $v is not installed in $ROOT (see: dvm list)"
+  fi
+  owner=$(owner_in "$v" "$(sdk_owner_map)")
+  case "$owner" in
+    apt:*|rpm:*)
+      pkg=${owner#*: }
+      local tool="apt"; case "$owner" in rpm:*) tool=$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum) ;; esac
+      out "SDK $v was installed by the package $pkg."
+      ask "Remove it with '$tool remove $pkg'?" || { out "Nothing removed."; return 0; }
+      run_priv /usr "$tool" remove "$pkg" || die "removing $pkg failed"
+      ;;
+    *)
+      delete_dirs "SDK $v" "$(removal_paths "$v")" || { out "Nothing removed."; return 0; }
+      if [ "$owner" = "macOS installer" ]; then
+        ids=$(pkgutil --pkgs 2>/dev/null | grep "^com\.microsoft\.dotnet\.dev\.$(re_escape "$v")\.")
+        for id in $ids; do run_priv /var/db pkgutil --forget "$id" >/dev/null || true; done
+      fi
+      ;;
+  esac
+  out "$CHECK SDK $v removed"
+}
+
+uninstall_runtime() {
+  [ $# -eq 1 ] || die "usage: dvm uninstall runtime <10.0.15>"
+  local v=$1 need owner pkgs tool id
+  if ! inlist "$v" "$(installed_runtimes)"; then
+    inlist "$v" "$(installed_sdks)" && die "$v is an SDK, not a runtime. Remove it with: dvm uninstall $v"
+    die "runtime $v is not installed in $ROOT (see: dvm list)"
+  fi
+  need=$(needing_sdks "$v")
+  if [ -n "$need" ]; then
+    die "runtime $v can't be removed: no other installed runtime is new enough for
+$(printf '%s\n' "$need" | awk -F'\t' '{ printf "  SDK %s (needs %s or newer)\n", $1, $2 }')
+Remove those SDKs first with: dvm uninstall <version>"
+  fi
+  owner=$(owner_in "$v" "$(runtime_owner_map)")
+  case "$owner" in
+    apt:*|rpm:*)
+      pkgs=${owner#*: }
+      tool="apt"; case "$owner" in rpm:*) tool=$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum) ;; esac
+      out "Runtime $v was installed by the package(s) $pkgs."
+      ask "Remove with '$tool remove $pkgs'?" || { out "Nothing removed."; return 0; }
+      # shellcheck disable=SC2086  # one word per package
+      run_priv /usr "$tool" remove $pkgs || die "removing $pkgs failed"
+      ;;
+    *)
+      delete_dirs "runtime $v" "$(runtime_paths "$v")" || { out "Nothing removed."; return 0; }
+      if [ "$owner" = "macOS installer" ]; then
+        for id in $(runtime_receipts "$v"); do run_priv /var/db pkgutil --forget "$id" >/dev/null || true; done
+      fi
+      ;;
+  esac
+  unkeep_runtime "$v"
+  out "$CHECK Runtime $v removed"
+}
+
+# ------------------------------------------------- system default + PATH
+
+integration_script() { # prints the shell commands still needed, if any
+  local arch f s=""
+  [ -n "$INTEGRATE" ] && [ -x "$ROOT/dotnet" ] || return 0
+  arch=$(dotnet_arch)
+  [ "$(readlink "$SYS/usr/local/bin/dotnet" 2>/dev/null)" = "$ROOT/dotnet" ] \
+    || s="${s}mkdir -p '$SYS/usr/local/bin' && ln -sfn '$ROOT/dotnet' '$SYS/usr/local/bin/dotnet' && "
+  for f in "$SYS/etc/dotnet/install_location" "$SYS/etc/dotnet/install_location_$arch"; do
+    [ "$(head -n1 "$f" 2>/dev/null)" = "$ROOT" ] \
+      || s="${s}mkdir -p '$SYS/etc/dotnet' && printf '%s\n' '$ROOT' > '$f' && "
+  done
+  if [ "$OS" = macos ]; then
+    [ "$(head -n1 "$SYS/etc/paths.d/dotnet" 2>/dev/null)" = "$ROOT" ] \
+      || s="${s}mkdir -p '$SYS/etc/paths.d' && printf '%s\n' '$ROOT' > '$SYS/etc/paths.d/dotnet' && "
+  fi
+  [ -n "$s" ] && printf '%strue\n' "$s"
+  return 0
+}
+
+ensure_integration() {
+  local s; s=$(integration_script)
+  [ -n "$s" ] || return 0
+  out "Making $ROOT the system default dotnet ($SYS/usr/local/bin/dotnet, $SYS/etc/dotnet/install_location) ..."
+  run_priv "$SYS/etc" sh -c "$s" || { note "System setup is not finished; run 'dvm init' again."; return 1; }
+}
+
+# Lines in shell profiles that point somewhere else.
+profile_refs() {
+  local dir=$1 f pat alt
+  pat="DOTNET_ROOT"
+  if [ -n "$dir" ]; then
+    pat="$pat|$(re_escape "$dir")([\"':]|/?\$|/?[[:space:]])"
+    case "$dir" in "$HOME"/*)
+      alt=${dir#"$HOME"}
+      pat="$pat|(\\\$HOME|\\\$\\{HOME\\}|~)$(re_escape "$alt")([\"':]|/?\$|/?[[:space:]])" ;;
+    esac
+  fi
+  for f in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.zshenv" "$HOME/.config/fish/config.fish"; do
+    [ -f "$f" ] || continue
+    grep -nE "$pat" "$f" 2>/dev/null | sed "s|^|      $f:|"
+  done
+  return 0
+}
+
+PATH_CHECKED=""
+check_path() {
+  [ -n "$PATH_CHECKED" ] && return 0
+  [ -x "$ROOT/dotnet" ] || return 0
+  PATH_CHECKED=1
+  local active real mine refs
+  mine=$(realpath_ "$ROOT/dotnet")
+  active=$(command -v dotnet 2>/dev/null || true)
+  real=""; [ -n "$active" ] && real=$(realpath_ "$active")
+  if [ "$real" = "$mine" ]; then
+    if [ -n "${DOTNET_ROOT:-}" ] && [ "$(realdir "$DOTNET_ROOT")" != "$(realdir "$ROOT")" ]; then
+      out ""
+      note "DOTNET_ROOT is set to $DOTNET_ROOT, so apps may still use that folder. Remove it from your shell profile:"
+      profile_refs ""
+    fi
+    return 0
+  fi
+  out ""
+  if [ -z "$active" ]; then
+    note "\`dotnet\` is not on your PATH in this shell yet."
+  else
+    note "\`dotnet\` in this shell is $active ($real), not dvm's $ROOT/dotnet."
+  fi
+  if [ -n "$INTEGRATE" ]; then
+    refs=$(profile_refs "$( [ -n "$real" ] && dirname "$real")")
+    if [ -n "$refs" ]; then
+      out "  These lines in your shell profile put the other dotnet first; remove them:"
+      printf '%s\n' "$refs"
+    elif [ -n "$active" ]; then
+      out "  Your PATH finds that one before $SYS/usr/local/bin/dotnet. Remove the old install, or put /usr/local/bin earlier in PATH."
+    fi
+    out "  Then open a new terminal (or run 'hash -r')."
+  else
+    out "  Add this to your shell profile to use dvm's folder:"
+    out "    export DOTNET_ROOT=\"$ROOT\""
+    out "    export PATH=\"\$DOTNET_ROOT:\$PATH\""
+  fi
+}
+
+# ------------------------------------------------ other .NET installations
+
+# Real folders holding a .NET SDK or runtime that are not dvm's folder.
+foreign_roots() {
+  local me; me=$(realdir "$ROOT" 2>/dev/null || printf '%s' "$ROOT")
+  {
+    ( IFS=:; for d in $PATH; do
+        [ -n "$d" ] && [ -f "$d/dotnet" ] && [ -x "$d/dotnet" ] && dirname "$(realpath_ "$d/dotnet")"
+      done )
+    [ -n "${DOTNET_ROOT:-}" ] && printf '%s\n' "$DOTNET_ROOT"
+    [ -f "$SYS/etc/dotnet/install_location" ] && head -n1 "$SYS/etc/dotnet/install_location"
+    printf '%s\n' "$HOME/.dotnet" "$HOME/.dotnetup" "$HOME/.local/share/mise/dotnet-root" \
+      /usr/lib/dotnet /usr/lib64/dotnet /usr/share/dotnet /usr/local/share/dotnet /opt/dotnet \
+      /snap/dotnet-sdk/current /opt/homebrew/opt/dotnet/libexec /usr/local/opt/dotnet/libexec
+  } | while IFS= read -r d; do
+        [ -n "$d" ] && [ -d "$d" ] || continue
+        [ -n "$(stable_dirs "$d/sdk")$(stable_dirs "$d/shared/Microsoft.NETCore.App")" ] || continue
+        r=$(realdir "$d") || continue
+        [ "$r" = "$me" ] || printf '%s\n' "$r"
+      done | awk '!seen[$0]++'
+}
+
+DESC=""; REMOVE_CMD=""; PACKAGED=""
+describe_root() {
+  local r=$1 pkgs
+  DESC="folder"; REMOVE_CMD=""; PACKAGED=""
+  case "$r" in
+    /snap/*) DESC="snap package dotnet-sdk"; REMOVE_CMD="sudo snap remove dotnet-sdk"; PACKAGED=1; return ;;
+    */Cellar/*|/opt/homebrew/*|/usr/local/opt/*) DESC="Homebrew formula dotnet"; REMOVE_CMD="brew uninstall dotnet"; PACKAGED=1; return ;;
+  esac
+  if command -v dpkg >/dev/null 2>&1; then
+    pkgs=$(dpkg -S "$r" 2>/dev/null | sed -n 's/: .*//p' | tr ',' '\n' | tr -d ' ' | grep . | sort -u | tr '\n' ' ')
+    if [ -n "$pkgs" ]; then
+      DESC="installed with apt"; REMOVE_CMD="sudo apt remove ${pkgs% }"; PACKAGED=1; return
+    fi
+  fi
+  if command -v rpm >/dev/null 2>&1; then
+    pkgs=$(rpm -qf --qf '%{NAME}\n' "$r/dotnet" 2>/dev/null | grep -v 'not owned' | sort -u | tr '\n' ' ')
+    if [ -n "$pkgs" ]; then
+      DESC="installed with dnf/yum"; REMOVE_CMD="sudo dnf remove ${pkgs% }"; PACKAGED=1; return
+    fi
+  fi
+  if [ "$r" = "$(realdir "$HOME/.dotnet" 2>/dev/null)" ]; then
+    # ~/.dotnet also holds global tools (~/.dotnet/tools): keep those.
+    REMOVE_CMD="rm -rf ~/.dotnet/{dotnet,sdk,sdk-manifests,shared,host,packs,templates,metadata}   (keeps ~/.dotnet/tools)"
+  elif writable "$r"; then
+    REMOVE_CMD="rm -rf '$r'"
+  else
+    REMOVE_CMD="sudo rm -rf '$r'"
+  fi
+}
+
+seen() { [ -f "$STATE/seen" ] && grep -qxF -- "$1" "$STATE/seen"; }
+mark_seen() { seen "$1" && return 0; mkdir -p "$STATE" && printf '%s\n' "$1" >> "$STATE/seen"; }
+
+MATCHED=""
+match_version() { # Microsoft build for an SDK version: same, or newest of its feature band
+  local v=$1 cv=${1%.*} b
+  MATCHED=""
+  channel_known "$cv" || return 0
+  ensure_channel "$cv"
+  if cut -f1 "$CH_TSV" | grep -qxF "$v"; then MATCHED=$v; return 0; fi
+  b=$(( ${v##*.} / 100 ))
+  MATCHED=$(cut -f1 "$CH_TSV" | awk -F. -v c="$cv" -v b="$b" '($1 "." $2) == c && int($3 / 100) == b { print; exit }')
+}
+
+commas() { printf '%s\n' "$1" | paste -sd, - | sed 's/,/, /g'; }
+
+offer_adoption() {
+  local r=$1 sdks rts v cv have want
+  sdks=$(stable_dirs "$r/sdk")
+  rts=$(stable_dirs "$r/shared/Microsoft.NETCore.App")
+  [ -n "$sdks$rts" ] || return 0
+  describe_root "$r"
+  out ""
+  note "Found .NET outside dvm: $r ($DESC)"
+  [ -n "$sdks" ] && out "  SDK $(commas "$sdks")"
+  [ -n "$rts" ] && out "  runtime $(commas "$rts")"
+  if ! interactive && [ -z "$ASSUME_YES" ]; then
+    out "  Run 'dvm init' to install the same version(s) with dvm."
+    return 0
+  fi
+  if ! ask "Install the same version(s) with dvm into $ROOT?"; then
+    mark_seen "$r"
+    out "  Skipped. Run 'dvm init' to do this later."
+    return 0
+  fi
+  ensure_index
+  for v in $sdks; do
+    match_version "$v"
+    if [ -z "$MATCHED" ]; then note "  There is no Microsoft build of $v or of its feature band; skipped."; continue; fi
+    [ "$MATCHED" != "$v" ] && out "  $v is not a Microsoft release; using $MATCHED from the same feature band."
+    if inlist "$MATCHED" "$(installed_sdks)"; then
+      out "$CHECK SDK $MATCHED is already installed"
+    else
+      do_install "$MATCHED"
+    fi
+  done
+  # Runtimes the SDKs above don't bring: the newest one of each channel.
+  for cv in $(printf '%s\n' "$rts" | awk -F. 'NF == 3 && !seen[$1 "." $2]++ { print $1 "." $2 }'); do
+    v=$(printf '%s\n' "$rts" | grep "^$(re_escape "$cv")\." | head -n1)
+    have=$(installed_runtimes | awk -F. -v c="$cv" -v p="${v##*.}" '($1 "." $2) == c && $3 + 0 >= p + 0 { print; exit }')
+    if [ -n "$have" ]; then out "$CHECK Runtime $have is already installed"; continue; fi
+    channel_known "$cv" || { note "  There is no Microsoft build of runtime $v; skipped."; continue; }
+    ensure_channel "$cv"
+    want=$v
+    if ! cut -f1 "$RT_TSV" | grep -qxF "$v"; then
+      want=$(channel_field "$cv" 6)
+      out "  Runtime $v is not a Microsoft release; using $want."
+    fi
+    do_install_runtime "$want"
+    keep_runtime "$want"
+  done
+  ensure_integration
+  check_path
+  mark_seen "$r"
+  out ""
+  out "You can remove the old install now:   $REMOVE_CMD"
+  [ -n "$PACKAGED" ] && [ -n "$INTEGRATE" ] && \
+    out "                                      then run 'dvm init' once more (removing it may take /etc/dotnet with it)"
+  out "See your versions with:               dvm list"
+}
+
+REMIND=""
+detect() { # mode: auto (ask once per folder) | init (always ask)
+  [ -n "${DVM_NO_DETECT:-}" ] && return 0
+  local mode=$1 r roots
+  roots=$(foreign_roots)
+  REMIND=""
+  while IFS= read -r r <&3; do
+    [ -n "$r" ] || continue
+    if [ "$mode" = init ] || ! seen "$r"; then
+      offer_adoption "$r"
+    else
+      REMIND="$REMIND$r
+"
+    fi
+  done 3<<EOF
+$roots
+EOF
+}
+
+post_checks() {
+  [ -n "${DVM_NO_DETECT:-}" ] && return 0
+  local r
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    describe_root "$r"
+    out ""
+    note "note: .NET is also installed in $r ($DESC), outside dvm."
+    out "      Remove it with: $REMOVE_CMD"
+  done <<EOF
+$REMIND
+EOF
+  if [ -n "$(integration_script)" ]; then
+    out ""
+    note "note: $ROOT is not the system default dotnet yet. Run 'dvm init'."
+  fi
+  check_path
+}
+
+cmd_init() {
+  local roots
+  roots=$(foreign_roots)
+  [ -n "${DVM_NO_DETECT:-}" ] && roots=""
+  if [ -z "$roots" ]; then out "No other .NET installs found."; fi
+  detect init
+  if [ -x "$ROOT/dotnet" ]; then
+    ensure_integration
+    check_path
+    out ""
+    out "$CHECK dvm manages $ROOT ($(installed_sdks | grep -c .) SDK(s), $(installed_runtimes | grep -c .) runtime(s) installed). See them with: dvm list"
+  else
+    out ""
+    out "Nothing in $ROOT yet. Install the newest SDK with: dvm install lts"
+  fi
+}
+
+usage() {
+  cat <<EOF
+dvm $DVM_VERSION - .NET SDK and runtime version manager (LTS releases)
+
+  dvm list [--all]           LTS channels, newest first, with their runtimes and
+                             SDKs; ✔ marks what is installed
+                             (--all also shows end-of-life LTS channels)
+  dvm list <channel>         every runtime and SDK of a channel, e.g. dvm list 10.0
+  dvm install <version>      lts       newest SDK of the newest supported LTS
+                             10.0      newest SDK of that channel
+                             10.0.404  that exact SDK
+  dvm install runtime <v>    only a runtime: lts, 10.0 or 10.0.15 (e.g. to run
+                             net8.0 apps that you build with a newer SDK)
+  dvm uninstall <version>    remove an SDK, e.g. dvm uninstall 10.0.404
+  dvm uninstall runtime <v>  remove a runtime, e.g. dvm uninstall runtime 10.0.10
+  dvm init                   find other .NET installs, offer to take them over,
+                             and make dvm's folder the system default dotnet
+  dvm version                print dvm's version
+
+Options: -y, --yes   answer yes to every question
+
+dvm manages $ROOT and asks for sudo only when it has to write there.
+Pin an SDK per repository with global.json.
+EOF
+}
+
+main() {
+  local -a args=()
+  local a
+  for a in "$@"; do
+    case "$a" in -y|--yes) ASSUME_YES=1 ;; *) args+=("$a") ;; esac
+  done
+  set -- ${args[@]+"${args[@]}"}
+  local cmd=${1:-help}
+  [ $# -gt 0 ] && shift
+  case "$cmd" in
+    list|ls)            detect auto; cmd_list "$@" ;;
+    install|i)          detect auto; cmd_install "$@" ;;
+    uninstall|remove|rm) cmd_uninstall "$@" ;;
+    init)               cmd_init ;;
+    version|--version|-v) out "dvm $DVM_VERSION" ;;
+    help|-h|--help)     usage ;;
+    *)                  usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"

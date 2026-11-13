@@ -1,0 +1,2 @@
+dvm: unknown .NET channel '7.5' (see: dvm list --all)
+exit=1

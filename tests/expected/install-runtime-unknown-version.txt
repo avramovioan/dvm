@@ -1,0 +1,4 @@
+dvm: 10.0.99 is not a released .NET runtime (see: dvm list 10.0)
+exit=1
+--- kept runtimes:
+8.0.34

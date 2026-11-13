@@ -1,0 +1,33 @@
+# Shared test cases: <name>|<dvm arguments>
+# Both tests/run-unix.sh and tests/run-windows.ps1 run every case against a
+# fresh copy of fixtures/ and compare the output with expected/<name>.txt.
+# For uninstall-* cases the folders left in the fake dotnet folder are
+# compared too.
+list|list
+list-all|list --all
+list-channel|list 10.0
+list-sts-channel|list 9.0
+list-bad-channel|list ten
+install-unknown-version|install 10.0.999
+install-unknown-channel|install 7.5
+install-bad-argument|install banana
+install-already-installed|install 10.0.404
+install-channel-already-installed|install 10.0
+uninstall-not-installed|uninstall 10.0.999
+uninstall-own-runtime|uninstall -y 10.0.110
+uninstall-keeps-kept-runtime|uninstall --yes 8.0.428
+uninstall-keeps-needed-runtime|uninstall -y 10.0.404
+uninstall-sdk-is-runtime|uninstall 8.0.22
+install-sdk-is-runtime|install 10.0.15
+install-runtime-already-installed|install runtime 10.0.15
+install-runtime-channel-already-installed|install runtime 8.0
+install-runtime-unknown-version|install runtime 10.0.99
+install-runtime-is-sdk|install runtime 10.0.404
+install-runtime-bad-argument|install runtime banana
+install-runtime-missing-version|install runtime
+uninstall-runtime-needed|uninstall runtime 10.0.15
+uninstall-runtime-rolls-forward|uninstall -y runtime 10.0.10
+uninstall-runtime-only|uninstall -y runtime 8.0.22
+uninstall-runtime-not-installed|uninstall runtime 10.0.99
+uninstall-runtime-is-sdk|uninstall runtime 10.0.404
+version|version
