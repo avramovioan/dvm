@@ -15,18 +15,55 @@ needs nothing beyond what every Linux distribution and macOS already has:
 
 ## Install
 
+**One command, no git clone needed:**
+
 ```bash
-git clone <your-repo-url> dvm
+curl -fsSL https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh | bash
+```
+
+Without sudo, into `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh | bash -s -- --user
+```
+
+No `curl`? Use `wget -qO- https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh | bash`.
+
+**To read the installer before running it**, download it first:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh
+less install.sh
+sh install.sh            # or: sh install.sh --user
+```
+
+**From a clone:**
+
+```bash
+git clone https://github.com/avramovioan/dvm.git
 ./dvm/unix/install.sh
 ```
 
-`install.sh` copies `unix/dvm` to **`/usr/local/bin/dvm`**, asking for your
-sudo password if that folder isn't writable, and then runs `dvm init`.
+### What `install.sh` does
 
-| Option | Effect |
+| Step | Detail |
 |---|---|
-| `--user` | Install to `~/.local/bin/dvm` instead, without sudo. |
-| `--no-init` | Don't run `dvm init` afterwards. |
+| 1. Get `dvm` | **Run from a clone:** it uses the clone's `unix/dvm`. **Anywhere else** (piped, or a downloaded copy of `install.sh`): it downloads `unix/dvm` from GitHub, from the **latest release**, or from `master` while there is no release yet. It checks that what arrived really is the dvm script. |
+| 2. Install it | Copies it to **`/usr/local/bin/dvm`**, asking for your sudo password if that folder isn't writable (`~/.local/bin/dvm` with `--user`, no sudo). |
+| 3. Check your PATH | Tells you if the folder isn't on your PATH, or if another `dvm` comes first. |
+
+That's all it does: you end up with the `dvm` command, and .NET isn't
+touched. Then run `dvm list` to see the versions, `dvm install lts` to
+install the newest SDK, or `dvm init` to take over a .NET install you
+already have. To **update** dvm, run the same command again.
+
+| Option | Environment variable | Effect |
+|---|---|---|
+| `--user` | | Install to `~/.local/bin/dvm` instead, without sudo. |
+| `--ref <tag or branch>` | `DVM_REF=<tag or branch>` | Install that version instead of the latest release, e.g. `--ref v1.1.0`. |
+
+With the one-liner, options go after `bash -s --`, for example
+`curl -fsSL https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh | bash -s -- --user --ref v1.1.0`.
 
 `/usr/local/bin` is on the PATH by default on Linux and on macOS (through
 `/etc/paths`), so the default install needs no setup. Run `hash -r` or open a
@@ -38,11 +75,11 @@ There are three ways to get a `dvm` command. They all run the same script.
 
 | Way | Command | Updates with `git pull` | Works in scripts and other programs | Needs sudo |
 |---|---|---|---|---|
-| **Copy** (recommended) | `./dvm/unix/install.sh` | no, run `install.sh` again | yes | only for `/usr/local/bin` |
+| **Copy** (recommended) | the one-liner above, or `./dvm/unix/install.sh` | no, run it again | yes | only for `/usr/local/bin` |
 | **Symlink** to the clone | `ln -s "$PWD/dvm/unix/dvm" ~/.local/bin/dvm` | yes | yes | no |
 | **Alias** in your shell profile | see below | yes | no, only in your interactive terminal | no |
 
-The copy keeps working if you move or delete the clone. The symlink and the
+The copy doesn't need a clone at all. The symlink and the
 alias run the script inside your clone, so they always run the version you
 last pulled.
 
@@ -285,6 +322,9 @@ too, remove them first with `dvm uninstall <version>` and
 
 ## Troubleshooting
 
+- **The one-liner says `could not download`.** Check that
+  `https://github.com/avramovioan/dvm` opens in a browser. Behind a proxy, set
+  `https_proxy`; `curl` uses it.
 - **`dvm: command not found`.** Check `type dvm`. After `install.sh --user`
   or the symlink, `~/.local/bin` has to be on your PATH (see above). After
   adding an alias, open a new terminal.

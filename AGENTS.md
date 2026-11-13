@@ -28,16 +28,18 @@ There are two implementations that must behave identically:
 
 | Other files | Role |
 |---|---|
-| `unix/install.sh` | POSIX sh; copies `unix/dvm` to `/usr/local/bin` (or `~/.local/bin` with `--user`), then runs `dvm init` |
-| `windows/install.ps1` | copies `dvm.cmd` + `lib\dvm.ps1` to `%LOCALAPPDATA%\Programs\dvm`, adds it to the user PATH, runs `dvm init` |
+| `unix/install.sh` | POSIX sh; installs `unix/dvm` to `/usr/local/bin` (or `~/.local/bin` with `--user`), and nothing else. Uses the clone's `unix/dvm` when it sits next to it, otherwise downloads it from GitHub (`curl \| bash` one-liner) |
+| `windows/install.ps1` | installs `dvm.cmd` + `lib\dvm.ps1` to `%LOCALAPPDATA%\Programs\dvm`, adds it to the user PATH, and nothing else. Uses the clone's files when they sit next to it, otherwise downloads them (`irm \| iex` one-liner) |
 | `windows/dvm.cmd` | runs `powershell.exe -ExecutionPolicy Bypass -File lib\dvm.ps1` (falls back to `dvm.ps1` next to it, as in the clone) |
 | `tests/cases.txt`, `tests/fixtures/`, `tests/expected/` | shared test cases, fake release data, fake dotnet folder layout, expected output |
 | `tests/run-unix.sh`, `tests/run-windows.ps1` | run every case against one implementation and compare the output byte for byte |
-| `.github/workflows/test.yml` | CI: Ubuntu, macOS (`/bin/bash` 3.2), Windows PowerShell 5.1 |
+| `tests/test-install.sh`, `tests/test-install.ps1` | installer tests against a fake GitHub made of `file://` URLs |
+| `.github/workflows/test.yml` | CI: all tests on Ubuntu, macOS (`/bin/bash` 3.2) and Windows PowerShell 5.1, then a real one-liner install from the pushed commit |
+| `.github/workflows/release.yml` | a tag `vX.Y.Z` creates the GitHub release the installers download from |
 | `README.md`, `unix/README.md`, `windows/README.md` | user docs; the OS READMEs hold the explanatory tables and must match behavior |
 
-The repository owner hosts it themselves; the clone URL in the READMEs is the
-placeholder `<your-repo-url>`.
+The repository is `https://github.com/avramovioan/dvm` (default branch
+`master`).
 
 ## Rules you must keep
 
@@ -182,7 +184,63 @@ placeholder `<your-repo-url>`.
   Changing the format means changing the file name, so old caches are
   ignored instead of misread.
 - Line endings: `.gitattributes` keeps LF everywhere, except CRLF for `*.cmd`
-  and `*.ps1`.
+  and `*.ps1`. That only applies to checkouts: `raw.githubusercontent.com`
+  serves the files as stored (LF). That's why `install.ps1` converts what it
+  downloads.
+- Keep `windows/*.ps1` pure ASCII (use `[char]0x2714` for ✔). Windows
+  PowerShell 5.1 reads a UTF-8 file without a BOM as ANSI.
+
+## The installers
+
+Both installers work in two modes:
+
+- **Clone mode.** They are run from a clone, so the dvm files sit next to
+  them, and they install those.
+- **Download mode.** Everything else: piped from the web, or a lone
+  downloaded copy. They download the files from
+  `https://raw.githubusercontent.com/<repo>/<ref>/...`.
+
+How download mode picks and checks the files:
+
+- `<ref>` is `--ref` / `-Ref` / `DVM_REF` if given. Otherwise it's the
+  latest release's `tag_name` from the GitHub API, or `master` when there is
+  no release yet.
+- Refs are restricted to `[A-Za-z0-9._/-]`, and what arrives is checked: a
+  bash shebang plus `DVM_VERSION=`, or `$DvmVersion =` / `powershell.exe`.
+  That catches HTML error pages.
+- `DVM_REPO`, `DVM_BASE_URL` and `DVM_API_URL` override where it downloads
+  from (CI, forks, tests). The tests use `file://` URLs; `install.ps1` copies
+  those itself, because PowerShell 7's web cmdlets can't read them.
+
+Constraints that come from `curl | bash`:
+
+- Options arrive after `bash -s --`.
+- The installers only install the `dvm` command. They must **not** run
+  `dvm init` or any other dvm command that touches .NET: the owner wants
+  users to end up with just the CLI. The installer tests check that no dvm
+  cache or state appears.
+
+Constraints that come from `irm | iex`:
+
+- The installer runs **inside the user's session**. Never call `exit`, which
+  would close their window; `throw` instead.
+- Keep everything inside the `Install-Dvm` function, so
+  `$ErrorActionPreference` etc. don't leak, and remove the function at the
+  end.
+- `iex` can't pass parameters, so every parameter also has an environment
+  variable (`-Ref` → `DVM_REF`).
+- `$PSScriptRoot` is empty, which is how download mode is detected.
+
+Converting downloaded files:
+
+- `install.ps1` rewrites downloaded files with CRLF line endings, because
+  cmd.exe misparses LF-only batch files.
+- `dvm.ps1` gets a UTF-8 BOM, and `dvm.cmd` gets no BOM (a BOM breaks
+  cmd).
+
+The one-liner URLs in the READMEs point at `master`, so `master` must always
+hold working installers. The installers then fetch dvm itself from the
+latest release.
 
 ## Testing
 
@@ -193,8 +251,13 @@ tests/run-unix.sh                                    # bash 5
 docker run --rm -v "$PWD":/dvm -w /dvm bash:3.2 bash -c \
   'apk add --no-cache coreutils findutils diffutils >/dev/null; DVM_TEST_BASH=/usr/local/bin/bash bash tests/run-unix.sh'
 docker run --rm -v "$PWD":/dvm -w /dvm mcr.microsoft.com/powershell pwsh -NoProfile -File tests/run-windows.ps1
-docker run --rm -v "$PWD":/mnt koalaman/shellcheck:stable unix/dvm unix/install.sh tests/run-unix.sh
+docker run --rm -v "$PWD":/mnt koalaman/shellcheck:stable unix/dvm unix/install.sh tests/run-unix.sh tests/test-install.sh
+tests/test-install.sh                                # unix/install.sh, needs curl
+docker run --rm -v "$PWD":/dvm -w /dvm mcr.microsoft.com/powershell pwsh -NoProfile -File tests/test-install.ps1
 ```
+
+`tests/test-install.ps1` refuses to run on Windows unless `CI` is set,
+because there the installer really edits the user PATH.
 
 How the tests work:
 
@@ -235,6 +298,10 @@ DVM_ROOT=/tmp/x DVM_STATE=/tmp/x-state DVM_NO_DETECT=1 unix/dvm install runtime 
 - macOS: never run on a real Mac; only bash 3.2 compatibility is tested.
 - When you bump the version, change `DVM_VERSION` and `$DvmVersion`
   together, and `tests/expected/version.txt`.
+- Releasing: after the version bump is on `master`, run
+  `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` refuses a tag
+  that doesn't match both scripts. Until the first release exists, the
+  installers install from `master`.
 
 ## Style
 

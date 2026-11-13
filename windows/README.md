@@ -15,23 +15,66 @@ too. The `dvm` command works in PowerShell, cmd and Windows Terminal.
 
 ## Install
 
-In PowerShell (no administrator rights needed):
+No administrator rights are needed for any of these.
+
+**One command, no git clone needed.** In PowerShell:
 
 ```powershell
-git clone <your-repo-url> dvm
+irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex
+```
+
+`irm` (`Invoke-RestMethod`) downloads the installer and `iex`
+(`Invoke-Expression`) runs it. This is the usual way to install command-line
+tools on Windows; Scoop, Bun, Deno and uv are installed the same way. No
+script file is run, so the execution policy doesn't block it.
+
+From cmd, start PowerShell for it:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex"
+```
+
+**To read the installer before running it**, download it first:
+
+```powershell
+irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+**From a clone:**
+
+```powershell
+git clone https://github.com/avramovioan/dvm.git
 powershell -ExecutionPolicy Bypass -File .\dvm\windows\install.ps1
 ```
 
-Or download the repository as a ZIP, extract it, and run the same
-`install.ps1` line from the extracted folder.
+Then **open a new terminal**.
 
-`install.ps1`:
+### What `install.ps1` does
 
-1. copies `dvm.cmd` and `lib\dvm.ps1` to **`%LOCALAPPDATA%\Programs\dvm`**,
-2. adds that folder to your **user PATH**,
-3. runs `dvm init`.
+| Step | Detail |
+|---|---|
+| 1. Get dvm | **Run from a clone:** it uses the clone's `dvm.ps1` and `dvm.cmd`. **Anywhere else** (`irm \| iex`, or a downloaded copy of `install.ps1`): it downloads both from GitHub, from the **latest release**, or from `master` while there is no release yet. It checks that the files really are dvm's, and converts them to what Windows expects (CRLF line endings, and a BOM so Windows PowerShell 5.1 reads `dvm.ps1` as UTF-8). |
+| 2. Install it | Copies `dvm.cmd` and `lib\dvm.ps1` to **`%LOCALAPPDATA%\Programs\dvm`** and removes the "downloaded from the internet" mark. |
+| 3. PATH | Adds that folder to your **user PATH** (not the system PATH). |
 
-Then **open a new terminal**. Use `-NoInit` to skip step 3.
+That's all it does: you end up with the `dvm` command, and .NET isn't
+touched. Open a new terminal, then run `dvm list` to see the versions,
+`dvm install lts` to install the newest SDK, or `dvm init` to take over a
+.NET install you already have. To **update** dvm, run the same command
+again.
+
+| Parameter (`-File`) | With `irm \| iex`, set first | Effect |
+|---|---|---|
+| `-Ref <tag or branch>` | `$env:DVM_REF = 'v1.1.0'` | Install that version instead of the latest release. |
+
+`irm | iex` can't pass parameters, which is why it reads environment
+variables instead:
+
+```powershell
+$env:DVM_REF = 'v1.1.0'; irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex
+```
 
 ### Why `dvm.cmd`
 
@@ -47,11 +90,11 @@ There are three ways to get a `dvm` command. They all run the same script.
 
 | Way | Updates with `git pull` | PowerShell | cmd | Scripts and other programs |
 |---|---|---|---|---|
-| **`install.ps1`** (recommended) | no, run `install.ps1` again | yes | yes | yes |
+| **`install.ps1`** (recommended): the one-liner above, or from a clone | no, run it again | yes | yes | yes |
 | **PowerShell alias** to the clone | yes | yes | no | no |
 | **cmd macro** (`doskey`) to the clone | yes | no | yes | no |
 
-`install.ps1` keeps working if you move or delete the clone. The alias and
+`install.ps1` doesn't need a clone at all. The alias and
 the macro run the scripts inside your clone, so they always run the version
 you last pulled. Both point at **`dvm.cmd`**, not `dvm.ps1`, so the execution
 policy never gets in the way. In the clone, `dvm.cmd` finds `dvm.ps1` right
@@ -315,6 +358,13 @@ stay where they are.
 
 ## Troubleshooting
 
+- **`irm` fails with "Could not create SSL/TLS secure channel".** Older
+  Windows 10 builds don't enable TLS 1.2 for PowerShell 5.1 by default. Run
+  this first, in the same window:
+  `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'`
+- **The one-liner says `could not download`.** Check that
+  `https://github.com/avramovioan/dvm` opens in a browser. A company proxy may
+  block `raw.githubusercontent.com`.
 - **`dvm` is not recognized.** Open a new terminal after `install.ps1`;
   running terminals keep the PATH they started with. For the alias, check
   that your profile runs (`Get-ExecutionPolicy` must not be `Restricted`) and
@@ -363,3 +413,7 @@ tests. These Windows-only parts can only be checked on Windows:
 9. The PowerShell alias (`Set-Alias dvm C:\...\windows\dvm.cmd` in
    `$PROFILE`) and the cmd macro both start dvm from the clone, and
    `dvm install` from the alias still gets its UAC prompt.
+10. The one-liner `irm ... | iex` in Windows PowerShell 5.1 installs dvm
+    and nothing else, the window stays open on errors (try
+    `$env:DVM_REF = 'nope'` first), and the cmd variant
+    (`powershell -Command "irm ... | iex"`) works too.

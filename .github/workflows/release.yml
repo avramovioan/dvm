@@ -1,0 +1,27 @@
+# Pushing a tag such as v1.2.0 creates the GitHub release that the installers
+# download from. The tag has to match the version in both scripts.
+#   git tag v1.2.0 && git push origin v1.2.0
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches dvm's version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          grep -qx "DVM_VERSION=\"$v\"" unix/dvm || { echo "unix/dvm does not say DVM_VERSION=\"$v\""; exit 1; }
+          grep -qx "\$DvmVersion = '$v'" windows/dvm.ps1 || { echo "windows/dvm.ps1 does not say \$DvmVersion = '$v'"; exit 1; }
+      - name: Tests
+        run: tests/run-unix.sh && tests/test-install.sh
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "dvm $GITHUB_REF_NAME" --generate-notes \
+            unix/install.sh unix/dvm windows/install.ps1 windows/dvm.ps1 windows/dvm.cmd

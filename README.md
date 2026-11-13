@@ -25,6 +25,24 @@ $ dvm list
       ...
 ```
 
+## Install
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex
+```
+
+Both download dvm from the latest GitHub release and put the `dvm` command
+on your PATH. Nothing else: .NET isn't touched until you run a `dvm`
+command, e.g. `dvm list`, `dvm install lts`, or `dvm init` to take over a
+.NET install you already have. Run them again to update dvm. The guides below cover options,
+installing from a clone, and reading the installer before running it.
+
 | Guide | Covers |
 |---|---|
 | [unix/README.md](unix/README.md) | Linux and macOS (`unix/dvm`, a bash script): install, alias for bash/zsh/fish, what works with which SDKs and runtimes, and how every command works there |
@@ -164,11 +182,12 @@ None to install:
 
 ```
 unix/dvm              the command for Linux and macOS (bash)
-unix/install.sh       installs it to /usr/local/bin (or ~/.local/bin)
+unix/install.sh       installs it to /usr/local/bin (or ~/.local/bin), from a clone or from GitHub
 windows/dvm.ps1       the command for Windows (PowerShell)
 windows/dvm.cmd       the global `dvm` command that starts dvm.ps1
-windows/install.ps1   installs both to %LOCALAPPDATA%\Programs\dvm
-tests/                shared test cases, run against both versions
+windows/install.ps1   installs both to %LOCALAPPDATA%\Programs\dvm, from a clone or from GitHub
+tests/                shared test cases, run against both versions, and installer tests
+.github/workflows/    tests on every push; a release for every version tag
 AGENTS.md             notes for anyone (or any agent) changing dvm
 ```
 
@@ -186,8 +205,33 @@ pwsh -File tests/run-windows.ps1                              # PowerShell 7, an
 
 After an intended output change, run `tests/run-unix.sh --update`, review the
 diff in `tests/expected/`, and check that the Windows runner still passes.
-`.github/workflows/test.yml` runs the tests on Ubuntu, macOS (`/bin/bash`
-3.2) and Windows PowerShell 5.1 when the repository is on GitHub.
+
+The installers have their own tests, which use a fake GitHub made of local
+files:
+
+```bash
+tests/test-install.sh                 # unix/install.sh
+pwsh -File tests/test-install.ps1     # windows/install.ps1 (in CI only, on Windows)
+```
+
+`.github/workflows/test.yml` runs all of them on Ubuntu, macOS (`/bin/bash`
+3.2) and Windows PowerShell 5.1, and then installs dvm with the one-liners
+from the pushed commit.
+
+## Releasing
+
+The installers download the **latest GitHub release** (or `master` while
+there is none). To publish a version:
+
+1. Set the same version in `unix/dvm` (`DVM_VERSION`), `windows/dvm.ps1`
+   (`$DvmVersion`) and `tests/expected/version.txt`, and commit.
+2. Tag and push:
+   ```bash
+   git tag v1.2.0 && git push origin v1.2.0
+   ```
+
+`.github/workflows/release.yml` checks that the tag matches both scripts,
+runs the tests, and creates the release with the scripts attached.
 
 ## Environment variables
 

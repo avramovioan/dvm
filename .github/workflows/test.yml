@@ -1,4 +1,6 @@
-# Runs the shared test cases on every OS dvm supports.
+# Runs the shared test cases and the installer tests on every OS dvm
+# supports, then installs dvm the way users do (the one-line installers),
+# straight from GitHub at the commit that was pushed.
 name: test
 on: [push, pull_request]
 jobs:
@@ -13,6 +15,14 @@ jobs:
         run: |
           if [ "$(uname -s)" = Darwin ]; then export DVM_TEST_BASH=/bin/bash; fi
           tests/run-unix.sh
+      - name: Installer tests
+        run: tests/test-install.sh
+      - name: Install from GitHub (curl | bash)
+        if: github.event_name == 'push'
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/unix/install.sh" \
+            | DVM_REPO="$GITHUB_REPOSITORY" DVM_REF="$GITHUB_SHA" bash -s -- --user
+          ~/.local/bin/dvm version
   windows:
     runs-on: windows-latest
     steps:
@@ -23,3 +33,14 @@ jobs:
       - name: dvm.cmd starts dvm
         shell: cmd
         run: windows\dvm.cmd version
+      - name: Installer tests
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-install.ps1
+      - name: Install from GitHub (irm | iex)
+        if: github.event_name == 'push'
+        shell: powershell
+        run: |
+          $env:DVM_REPO = $env:GITHUB_REPOSITORY; $env:DVM_REF = $env:GITHUB_SHA
+          irm "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/windows/install.ps1" | iex
+          & "$env:LOCALAPPDATA\Programs\dvm\dvm.cmd" version
+          if ($LASTEXITCODE -ne 0) { exit 1 }

@@ -57,7 +57,7 @@ function Out-Line([string]$Text = '', [string]$Color = '') {
     if ($UseColor -and $Color) { Write-Host $Text -ForegroundColor $Color } else { Write-Host $Text }
 }
 
-# "    ✔ text" / "      text"
+# "    <check mark> text" / "      text"
 function Out-Mark([bool]$Ok, [string]$Rest) {
     Write-Host '    ' -NoNewline
     if ($Ok -and $UseColor) { Write-Host $Check -ForegroundColor Green -NoNewline }
