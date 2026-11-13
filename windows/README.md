@@ -1,103 +1,278 @@
 # dvm on Windows
 
-On Windows, dvm is the PowerShell script **`windows\dvm.ps1`**, started
-through a small **`windows\dvm.cmd`**, and **`windows\install.ps1`** puts both
-on your PATH. It runs on **Windows PowerShell 5.1**, which comes with every
-Windows 10 and 11, so there's nothing to install first. PowerShell 7 works
-too. The `dvm` command works in PowerShell, cmd and Windows Terminal.
+dvm is a PowerShell script with a small `dvm.cmd` launcher, so the `dvm`
+command works in PowerShell, cmd and Windows Terminal. It runs on
+**Windows PowerShell 5.1**, which comes with every Windows 10 and 11, so
+there's nothing to install first. PowerShell 7 works too.
 
-| | Windows |
-|---|---|
-| dotnet folder dvm manages | `C:\Program Files\dotnet` |
-| Where `install.ps1` puts `dvm` | `%LOCALAPPDATA%\Programs\dvm\dvm.cmd` and `...\lib\dvm.ps1` |
-| Downloads and release data | `%LOCALAPPDATA%\dvm\cache` |
-| What dvm remembers | `%APPDATA%\dvm` |
+1. [Install](#install), either with [one command](#a-one-command-recommended) or [from a git clone](#b-from-a-git-clone)
+2. [Update dvm](#updating-dvm)
+3. [Use dvm with .NET versions](#using-dvm)
+4. [Remove dvm entirely](#removing-dvm-entirely)
+5. [How it works](#how-it-works): what the installer does, and where things are stored
 
 ## Install
 
-No administrator rights are needed for any of these.
+Pick **one** of the two ways. Neither needs administrator rights.
 
-**One command, no git clone needed.** In PowerShell:
+### A. One command (recommended)
+
+**Step 1.** Open PowerShell (a normal window, not "Run as administrator")
+and install dvm:
 
 ```powershell
 irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex
 ```
 
-`irm` (`Invoke-RestMethod`) downloads the installer and `iex`
-(`Invoke-Expression`) runs it. This is the usual way to install command-line
-tools on Windows; Scoop, Bun, Deno and uv are installed the same way. No
-script file is run, so the execution policy doesn't block it.
+This downloads the latest release of dvm to `%LOCALAPPDATA%\Programs\dvm`
+and adds that folder to your user PATH. `irm` downloads the installer and
+`iex` runs it. This is the usual way to install command-line tools on
+Windows (Scoop, Bun, Deno and uv do the same), and the execution policy
+doesn't block it.
 
-From cmd, start PowerShell for it:
+From cmd instead of PowerShell:
 
 ```bat
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex"
 ```
 
-**To read the installer before running it**, download it first:
+**Step 2.** Check that it works:
 
 ```powershell
-irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 -OutFile install.ps1
-notepad install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+dvm --version
 ```
 
-**From a clone:**
+It prints `dvm` and the version, e.g. `dvm 1.1.1`. You don't need an alias.
+
+- **The PowerShell window you installed from** works right away.
+- **Other windows, cmd, and the cmd install command** need a new terminal
+  first, because running terminals keep the PATH they started with.
+
+That's it: you have the `dvm` command. Go on with [Using dvm](#using-dvm).
+
+### B. From a git clone
+
+Use this to run dvm straight from the source code, e.g. to read or change
+it. You make the `dvm` command yourself, with a PowerShell alias. The
+examples use `C:\src\dvm`.
+
+**Step 1.** Clone the repository:
 
 ```powershell
-git clone https://github.com/avramovioan/dvm.git
-powershell -ExecutionPolicy Bypass -File .\dvm\windows\install.ps1
+git clone https://github.com/avramovioan/dvm.git C:\src\dvm
 ```
 
-Then **open a new terminal**.
+**Step 2.** Allow your PowerShell profile to run. Windows doesn't run any
+`.ps1` file by default, and that includes your profile, where the alias will
+live. This needs no administrator rights. Skip it if `Get-ExecutionPolicy`
+already shows `RemoteSigned` or `Unrestricted`.
 
-### What `install.ps1` does
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
 
-| Step | Detail |
-|---|---|
-| 1. Get dvm | **Run from a clone:** it uses the clone's `dvm.ps1` and `dvm.cmd`. **Anywhere else** (`irm \| iex`, or a downloaded copy of `install.ps1`): it downloads both from GitHub, from the **latest release**, or from `master` while there is no release yet. It checks that the files really are dvm's, and converts them to what Windows expects (CRLF line endings, and a BOM so Windows PowerShell 5.1 reads `dvm.ps1` as UTF-8). |
-| 2. Write the version | Writes the version from the repository's `VERSION` file into `dvm.ps1`, so `dvm version` reports it. |
-| 3. Install it | Copies `dvm.cmd` and `lib\dvm.ps1` to **`%LOCALAPPDATA%\Programs\dvm`** and removes the "downloaded from the internet" mark. |
-| 4. PATH | Adds that folder to your **user PATH** (not the system PATH). |
+**Step 3.** Add the alias to your profile. It points at `dvm.cmd`, not
+`dvm.ps1`, so the execution policy never gets in the way of dvm itself.
 
-That's all it does: you end up with the `dvm` command, and .NET isn't
-touched. Open a new terminal, then run `dvm list` to see the versions,
-`dvm install lts` to install the newest SDK, or `dvm init` to take over a
-.NET install you already have.
+```powershell
+if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
+Add-Content -Path $PROFILE -Value "Set-Alias dvm 'C:\src\dvm\windows\dvm.cmd'"
+```
 
-### Updating dvm
+Windows PowerShell 5.1 and PowerShell 7 have separate profiles. If you use
+both, run step 3 in each.
+
+**Step 4.** Open a new PowerShell window and check that it works:
+
+```powershell
+dvm --version
+```
+
+It prints `dvm` and the version from the clone's `VERSION` file.
+`Get-Command dvm` shows that `dvm` is an alias for `C:\src\dvm\windows\dvm.cmd`.
+
+That's it. Go on with [Using dvm](#using-dvm).
+
+> The alias only exists in PowerShell. To also have `dvm` in cmd, add a
+> macro for every new cmd window. This replaces any AutoRun command you
+> already have, so check first with
+> `reg query "HKCU\Software\Microsoft\Command Processor" /v AutoRun`.
+> ```bat
+> reg add "HKCU\Software\Microsoft\Command Processor" /v AutoRun /t REG_SZ /d "doskey dvm=C:\src\dvm\windows\dvm.cmd $*" /f
+> ```
+
+## Updating dvm
+
+**If you installed with the one command (A):**
 
 ```powershell
 dvm update
 ```
 
 It checks the latest release on GitHub. If that's newer than your dvm, it
-runs that release's `install.ps1`, which replaces the files in
-`%LOCALAPPDATA%\Programs\dvm`. No administrator rights are needed:
+installs it in place. No administrator rights are needed:
 
 ```
 PS> dvm update
 Checking for a newer dvm ...
-Updating dvm 1.1.0 to 1.2.0 ...
-Downloading dvm (v1.2.0) from https://raw.githubusercontent.com/avramovioan/dvm ...
-✔ dvm 1.2.0 installed to C:\Users\you\AppData\Local\Programs\dvm (was 1.1.0, from avramovioan/dvm@v1.2.0)
+Updating dvm 1.1.0 to 1.1.1 ...
+Downloading dvm (v1.1.1) from https://raw.githubusercontent.com/avramovioan/dvm ...
+✔ dvm 1.1.1 installed to C:\Users\you\AppData\Local\Programs\dvm (was 1.1.0, from avramovioan/dvm@v1.1.1)
 ```
 
-If you run dvm from a git clone (alias or macro), `dvm update` tells you to
-`git pull` instead. Running the install command again does the same as
-`dvm update`. `dvm.cmd` runs PowerShell and exits on one line on purpose:
-cmd.exe reads batch files line by line, and `dvm update` replaces `dvm.cmd`
-while it runs.
+If you're already up to date, it says so and changes nothing.
+
+**If you use a git clone (B):** pull the latest code. The alias then runs
+the new version right away:
+
+```powershell
+git -C C:\src\dvm pull
+```
+
+(`dvm update` notices that it runs from a clone and tells you the same.)
+
+## Using dvm
+
+### First steps
+
+```powershell
+dvm list            # the .NET versions, with a check mark for what you have
+dvm install lts     # install the newest SDK
+```
+
+dvm installs into `C:\Program Files\dotnet`, the folder the official
+installers and Visual Studio use. Anything already installed there shows up
+right away. When dvm needs to write there, it shows **one UAC prompt** per
+command. Run it in a normal terminal.
+
+If .NET is also installed in another folder (for example
+`%LOCALAPPDATA%\Microsoft\dotnet`), run `dvm init` once. dvm offers to
+install the same versions into `C:\Program Files\dotnet` and tells you how to
+remove the old folder ([details](#taking-over-net-in-other-folders)).
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `dvm list` | LTS channels, newest first: their latest runtime and SDKs, plus everything you have installed |
+| `dvm list --all` | also shows the end-of-life LTS channels |
+| `dvm list 10.0` | every runtime and SDK of one channel (also `9.0` and other non-LTS channels) |
+| `dvm install lts` / `10.0` / `10.0.404` | the newest SDK of the newest LTS / of a channel / that exact SDK |
+| `dvm install runtime 8.0` | only a runtime, without its SDK (also `runtime lts`, `runtime 8.0.34`) |
+| `dvm uninstall 10.0.404` | remove an SDK (its runtime goes too, unless something still needs it) |
+| `dvm uninstall runtime 10.0.11` | remove a runtime, unless an installed SDK needs it |
+| `dvm init` | take over .NET installed elsewhere, and make `C:\Program Files\dotnet` the system default |
+| `dvm update` | update dvm itself |
+| `dvm --version` | print dvm's version |
+
+`-y` / `--yes` answers yes to every question, for scripts.
+
+### SDKs and runtimes
+
+The SDK builds your code. The runtime runs it. Every SDK comes with exactly
+one runtime, the one of its own version, so SDK 10.0.404 brings
+runtime 10.0.15. On Windows a runtime has three parts: the base .NET runtime,
+ASP.NET Core and Windows Desktop (WPF and Windows Forms). A `net8.0` app needs
+an 8.0.x runtime and runs on the newest 8.0.x you have. It never runs on 10.0.
+You don't switch versions: `dotnet` picks the right runtime per app, and the
+newest SDK unless a `global.json` pins one.
+
+**What works with what you have**, for a `net8.0` project and a `net10.0`
+project:
+
+| Installed | `dotnet build` net8.0 | `dotnet run` / `test` net8.0 | `dotnet MyApp.dll` or `MyApp.exe` (built net8.0 app) | anything with net10.0 |
+|---|---|---|---|---|
+| SDK 10 only | yes | **no**: *Framework 'Microsoft.NETCore.App', version '8.0.0' was not found* | **no**, same error | yes |
+| SDK 10 + `dvm install runtime 8.0` | yes | yes | yes | yes |
+| SDK 8 only | yes | yes | yes | **no**: SDK 8 can't build net10.0 |
+| runtime 8 only, no SDK at all | **no**: *No .NET SDKs were found* | **no**, same error | yes | no |
+
+A `global.json` that pins an 8.0.x SDK is the one case where SDK 10 isn't
+allowed to build. That repository then needs SDK 8: `dvm install 8.0`.
+
+**Which command for which need:**
+
+| You want to | Run |
+|---|---|
+| Build and run net10.0 projects | `dvm install 10.0` (newest SDK, with its runtime) |
+| Also run and test net8.0 projects | `dvm install runtime 8.0` (newest 8.0 runtime, no SDK) |
+| Build a repository whose `global.json` pins SDK 8 | `dvm install 8.0` or the exact version, e.g. `dvm install 8.0.428` |
+| Use one exact older runtime (to reproduce a bug, or match a server) | `dvm list 8.0` shows them all, then `dvm install runtime 8.0.22` |
+| Only run apps that are already built (like a server) | `dvm install runtime 10.0`, no SDK |
+
+## Removing dvm entirely
+
+**Step 1 (optional): remove the .NET versions.** Removing dvm leaves .NET
+installed. If you want .NET gone too, do it first, while you still have
+dvm:
+
+```powershell
+dvm list                          # see what's installed
+dvm uninstall 10.0.404            # an SDK
+dvm uninstall runtime 8.0.34      # a runtime
+```
+
+SDKs and runtimes from the official installers go through their own
+uninstaller, and dvm points you to the Visual Studio Installer for the ones
+Visual Studio needs.
+
+**Step 2: remove the `dvm` command.**
+
+| You installed with | Do this |
+|---|---|
+| the one command (A) | Delete the folder: `Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\dvm"`. Then remove it from your user PATH: **Settings → System → About → Advanced system settings → Environment Variables → User variables → Path → select `...\Programs\dvm` → Delete**. |
+| a git clone (B) | Delete the `Set-Alias dvm ...` line from your profile (`notepad $PROFILE`). If you added the cmd macro, remove it with `reg delete "HKCU\Software\Microsoft\Command Processor" /v AutoRun /f`. Then delete the clone: `Remove-Item -Recurse -Force C:\src\dvm` |
+
+**Step 3: remove dvm's own files** (cached downloads, and what it
+remembers):
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\dvm", "$env:APPDATA\dvm" -ErrorAction SilentlyContinue
+```
+
+Open a new terminal. `dvm --version` now says that `dvm` is not recognized.
+
+## How it works
+
+### Where everything is
+
+| What | Where |
+|---|---|
+| The `dvm` command (A) | `%LOCALAPPDATA%\Programs\dvm\dvm.cmd`, which starts `...\lib\dvm.ps1` |
+| The .NET folder dvm manages | `C:\Program Files\dotnet` |
+| System settings for that folder | the system PATH, and `HKLM\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\<arch>\InstallLocation` |
+| Downloads and release data | `%LOCALAPPDATA%\dvm\cache` |
+| What dvm remembers | `%APPDATA%\dvm` |
+
+### What `install.ps1` does
+
+| Step | Detail |
+|---|---|
+| 1. Get dvm | **Run from a clone:** it uses the clone's `dvm.ps1` and `dvm.cmd`. **Anywhere else** (`irm \| iex`, or a downloaded copy of `install.ps1`): it downloads both from GitHub, from the **latest release**, or from `master` while there is no release yet. It checks that the files really are dvm's, and converts them to what Windows expects (CRLF line endings, and a BOM so Windows PowerShell 5.1 reads `dvm.ps1` as UTF-8). |
+| 2. Write the version | Writes the version from the repository's `VERSION` file into `dvm.ps1`, so `dvm --version` reports it. |
+| 3. Install it | Copies `dvm.cmd` and `lib\dvm.ps1` to **`%LOCALAPPDATA%\Programs\dvm`** and removes the "downloaded from the internet" mark. |
+| 4. PATH | Adds that folder to your **user PATH** (not the system PATH), and to the PATH of the PowerShell window it runs in. |
+
+That's all it does. It doesn't touch .NET. `dvm update` runs the installer
+of the newest release in the same way.
 
 | Parameter (`-File`) | With `irm \| iex`, set first | Effect |
 |---|---|---|
 | `-Ref <tag or branch>` | `$env:DVM_REF = 'v1.1.0'` | Install that version instead of the latest release. |
 
-`irm | iex` can't pass parameters, which is why it reads environment
-variables instead:
+`irm | iex` can't pass parameters, which is why it reads an environment
+variable instead:
 
 ```powershell
 $env:DVM_REF = 'v1.1.0'; irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex
+```
+
+To read the installer before you run it, download it first:
+
+```powershell
+irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ### Why `dvm.cmd`
@@ -108,116 +283,21 @@ without changing any system setting. `dvm.ps1` sits in the `lib` subfolder
 because, when both are in the same PATH folder, PowerShell prefers
 `dvm.ps1` over `dvm.cmd` and runs into the policy.
 
-## Making the `dvm` command work in your terminal
+`dvm.cmd` runs PowerShell and exits on one line on purpose. cmd.exe reads
+batch files line by line, and `dvm update` replaces `dvm.cmd` while it runs.
 
-There are three ways to get a `dvm` command. They all run the same script.
-
-| Way | Updates with `git pull` | PowerShell | cmd | Scripts and other programs |
-|---|---|---|---|---|
-| **`install.ps1`** (recommended): the one-liner above, or from a clone | no: `dvm update` | yes | yes | yes |
-| **PowerShell alias** to the clone | yes | yes | no | no |
-| **cmd macro** (`doskey`) to the clone | yes | no | yes | no |
-
-`install.ps1` doesn't need a clone at all. The alias and
-the macro run the scripts inside your clone, so they always run the version
-you last pulled. Both point at **`dvm.cmd`**, not `dvm.ps1`, so the execution
-policy never gets in the way. In the clone, `dvm.cmd` finds `dvm.ps1` right
-next to it.
-
-The examples use a clone in `C:\src\dvm`.
-
-### PowerShell alias
-
-1. Windows doesn't run any `.ps1` file by default, and that includes your
-   PowerShell profile. Allow your own scripts once (this needs no
-   administrator rights):
-   ```powershell
-   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-   ```
-   Skip this if `Get-ExecutionPolicy` already shows `RemoteSigned` or
-   `Unrestricted`.
-2. Create your profile if it doesn't exist yet, and open it:
-   ```powershell
-   if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
-   notepad $PROFILE
-   ```
-3. Add this line, save, and open a new PowerShell window:
-   ```powershell
-   Set-Alias dvm 'C:\src\dvm\windows\dvm.cmd'
-   ```
-
-Windows PowerShell 5.1 and PowerShell 7 have separate profiles
-(`Documents\WindowsPowerShell\...` and `Documents\PowerShell\...`). If you
-use both, repeat steps 2 and 3 in each. Check the result with
-`Get-Command dvm`.
-
-### cmd macro
-
-For the current cmd window:
-```bat
-doskey dvm=C:\src\dvm\windows\dvm.cmd $*
-```
-
-For every new cmd window, register it as cmd's AutoRun command:
-```bat
-reg add "HKCU\Software\Microsoft\Command Processor" /v AutoRun /t REG_SZ /d "doskey dvm=C:\src\dvm\windows\dvm.cmd $*" /f
-```
-
-This replaces any AutoRun command you already have. Check first with
-`reg query "HKCU\Software\Microsoft\Command Processor" /v AutoRun`.
-
-### Putting dvm on your PATH by hand
-
-This is the same as what `install.ps1` does. Keep `dvm.ps1` in a `lib`
-subfolder, as explained above:
+To put dvm on your PATH by hand instead of with `install.ps1`, keep the same
+layout:
 
 ```powershell
 $dir = "$env:LOCALAPPDATA\Programs\dvm"
 New-Item -ItemType Directory -Force -Path "$dir\lib" | Out-Null
-Copy-Item .\dvm\windows\dvm.cmd $dir
-Copy-Item .\dvm\windows\dvm.ps1 "$dir\lib"
+Copy-Item C:\src\dvm\windows\dvm.cmd $dir
+Copy-Item C:\src\dvm\windows\dvm.ps1 "$dir\lib"
 [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$dir", 'User')
 ```
 
-Or add the folder in **Settings → System → About → Advanced system settings →
-Environment Variables → User variables → Path → New**. Open a new terminal
-afterwards.
-
-## SDKs and runtimes, in practice
-
-The SDK builds your code. The runtime runs it. Every SDK comes with exactly
-one runtime, the one of its own version, so SDK 10.0.404 brings
-runtime 10.0.15. On Windows a runtime has three parts: the base .NET runtime,
-ASP.NET Core and Windows Desktop (WPF and Windows Forms). A `net8.0` app needs
-an 8.0.x runtime and runs on the newest 8.0.x you have. It never runs on 10.0.
-
-### What works with what you have
-
-For a `net8.0` project and a `net10.0` project:
-
-| Installed in `C:\Program Files\dotnet` | `dotnet build` net8.0 | `dotnet run` / `test` net8.0 | `dotnet MyApp.dll` or `MyApp.exe` (built net8.0 app) | anything with net10.0 |
-|---|---|---|---|---|
-| SDK 10 only | yes | **no**: *Framework 'Microsoft.NETCore.App', version '8.0.0' was not found* | **no**, same error | yes |
-| SDK 10 + `dvm install runtime 8.0` | yes | yes | yes | yes |
-| SDK 8 only | yes | yes | yes | **no**: SDK 8 can't build net10.0 |
-| runtime 8 only, no SDK at all | **no**: *No .NET SDKs were found* | **no**, same error | yes | no |
-
-A `global.json` that pins an 8.0.x SDK is the one case where SDK 10 isn't
-allowed to build. That repository then needs SDK 8: `dvm install 8.0`.
-
-### Which command for which need
-
-| You want to | Run |
-|---|---|
-| Build and run net10.0 projects | `dvm install 10.0` (newest SDK, with its runtime) |
-| Also run and test net8.0 projects | `dvm install runtime 8.0` (newest 8.0 runtime, no SDK) |
-| Build a repository whose `global.json` pins SDK 8 | `dvm install 8.0` or the exact version, e.g. `dvm install 8.0.428` |
-| Use one exact older runtime (to reproduce a bug, or match a server) | `dvm list 8.0` shows them all, then `dvm install runtime 8.0.22` |
-| Only run apps that are already built (like a server) | `dvm install runtime 10.0`, no SDK |
-
-## How it works
-
-### What's in the dotnet folder
+### What's in the .NET folder
 
 Everything lives side by side in `C:\Program Files\dotnet`. `dotnet.exe`
 picks the SDK and runtime per project from there.
@@ -238,16 +318,17 @@ picks the SDK and runtime per project from there.
 
 | Command | Steps | Admin (UAC) |
 |---|---|---|
-| `dvm list` | 1. Looks for .NET outside the dotnet folder (asks once per folder, see [Taking over](#taking-over-net-in-other-folders)). 2. Reads Microsoft's release list (from the cache if it's less than an hour old). 3. Reads what's in the dotnet folder, and Windows' list of installed programs to see who installed each SDK and runtime. 4. Prints the table. 5. Reminds you of anything left to do (old installs, system PATH, `DOTNET_ROOT`). | never |
+| `dvm list` | 1. Looks for .NET outside the .NET folder (asks once per folder, see [Taking over](#taking-over-net-in-other-folders)). 2. Reads Microsoft's release list (from the cache if it's less than an hour old). 3. Reads what's in the .NET folder, and Windows' list of installed programs to see who installed each SDK and runtime. 4. Prints the table. 5. Reminds you of anything left to do (old installs, system PATH, `DOTNET_ROOT`). | never |
 | `dvm install 10.0.404` | 1. Checks the version against the release list. 2. Downloads Microsoft's `dotnet-install.ps1` (refreshed daily). 3. Shows one UAC prompt and runs `dotnet-install.ps1 -Version 10.0.404 -InstallDir "C:\Program Files\dotnet" -NoPath` in a hidden elevated copy of dvm; its output appears in your window. 4. In the same elevated step, sets the system PATH and the install location in the registry if they're missing. 5. Checks what `dotnet` new terminals will find. | one prompt, for steps 3 and 4 |
 | `dvm install runtime 8.0` | The same, but step 3 runs `-Runtime aspnetcore -Version 8.0.34` and then `-Runtime windowsdesktop -Version 8.0.34`. Then adds `8.0.34` to `%APPDATA%\dvm\runtimes`. | one prompt |
-| `dvm uninstall 10.0.404` | 1. Finds out who installed the SDK. 2. dvm's own SDK: works out which folders belong only to it (next section), shows them, asks, and deletes exactly those in the elevated copy (it refuses anything outside the dotnet folder). Windows installer: runs the registered uninstaller. Visual Studio: removes nothing and points you to the Visual Studio Installer. | one prompt |
+| `dvm uninstall 10.0.404` | 1. Finds out who installed the SDK. 2. dvm's own SDK: works out which folders belong only to it (see [What `dvm uninstall` removes](#what-dvm-uninstall-removes)), shows them, asks, and deletes exactly those in the elevated copy (it refuses anything outside the .NET folder). Windows installer: runs the registered uninstaller. Visual Studio: removes nothing and points you to the Visual Studio Installer. | one prompt |
 | `dvm uninstall runtime 10.0.11` | 1. Refuses if an installed SDK needs that runtime. 2. Runs the runtime installer's uninstaller, or tells you which program it came with, or shows the folders, asks and deletes them. 3. Removes the version from `%APPDATA%\dvm\runtimes`. | one prompt |
-| `dvm init` | Asks about every .NET install outside the dotnet folder again, sets the system PATH and install location, and checks your PATH. | one prompt, if something is missing |
+| `dvm init` | Asks about every .NET install outside the .NET folder again, sets the system PATH and install location, and checks your PATH. | one prompt, if something is missing |
+| `dvm update` | Downloads the `VERSION` file of the latest release. If that's newer, downloads that release's `install.ps1` and runs it with `-Ref v<version>`. Only works for a dvm in `%LOCALAPPDATA%\Programs\dvm`. | never |
 
-Run `dvm` in a normal terminal. If you decline the UAC prompt, dvm says so;
-you can then run the same command in a terminal opened with **Run as
-administrator**, where no prompt is needed.
+If you decline the UAC prompt, dvm says so. You can then run the same
+command in a terminal opened with **Run as administrator**, where no prompt
+is needed.
 
 When you install a version that is older than what you already have, dvm
 adds `-SkipNonVersionedFiles`. Without it, Microsoft's script would replace
@@ -307,7 +388,7 @@ Without a network, dvm uses the cached copies. `DVM_CACHE`, `DVM_STATE` and
 the other variables in the [main README](../README.md#environment-variables)
 change these places.
 
-## Making dvm's dotnet the default
+### Making dvm's dotnet the default
 
 `C:\Program Files\dotnet` is the folder the official installers and Visual
 Studio use, and the one Windows and built apps look in by default. If
@@ -321,7 +402,7 @@ Studio use, and the one Windows and built apps look in by default. If
 The installers normally set both already. dvm edits the PATH in the
 registry directly, so entries like `%SystemRoot%\system32` stay as they are.
 
-## SDKs and runtimes that are already installed
+### SDKs and runtimes that are already installed
 
 Everything already in `C:\Program Files\dotnet` shows up with ✔ right away.
 dvm checks Windows' list of installed programs to see who installed each SDK
@@ -329,7 +410,7 @@ and runtime:
 
 | Installed by | Shown as | `dvm uninstall` |
 |---|---|---|
-| dvm | `✔ 10.0.404` | deletes its folders (previous section) |
+| dvm | `✔ 10.0.404` | deletes its folders (see [What `dvm uninstall` removes](#what-dvm-uninstall-removes)) |
 | Official installer / winget | `✔ 10.0.404 ... (Windows installer)` | runs its registered uninstaller, so it also leaves *Apps & features* |
 | Visual Studio | `✔ 8.0.416 ... (Visual Studio)` | removes nothing and points you to the **Visual Studio Installer** (*Modify → Individual components*), because Visual Studio puts back SDKs it needs |
 
@@ -341,7 +422,11 @@ two cases:
 | the standalone runtime installer or the Hosting Bundle | runs its uninstaller(s) |
 | inside an SDK installer or Visual Studio | removes nothing and tells you to remove that program instead, because the runtime has no uninstaller of its own |
 
-## Taking over .NET in other folders
+`dvm list` labels every installed runtime: `comes with SDK 10.0.404`,
+`runtime only` (installed with `dvm install runtime`, or no installed SDK
+came with it), or `Windows installer`.
+
+### Taking over .NET in other folders
 
 On the first run dvm also looks outside `C:\Program Files\dotnet`: everything
 on the user and system PATH, `DOTNET_ROOT`, `%LOCALAPPDATA%\Microsoft\dotnet`
@@ -370,17 +455,7 @@ If you say yes:
 
 `C:\Program Files (x86)\dotnet` (32-bit .NET) is left alone.
 
-## Uninstalling dvm
-
-```powershell
-Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\dvm", "$env:LOCALAPPDATA\dvm", "$env:APPDATA\dvm"
-```
-
-Then remove `%LOCALAPPDATA%\Programs\dvm` from your user PATH (or the alias
-from your profile, or the AutoRun value). The installed SDKs and runtimes
-stay where they are.
-
-## Troubleshooting
+### Troubleshooting
 
 - **`irm` fails with "Could not create SSL/TLS secure channel".** Older
   Windows 10 builds don't enable TLS 1.2 for PowerShell 5.1 by default. Run
@@ -389,10 +464,10 @@ stay where they are.
 - **The one-liner says `could not download`.** Check that
   `https://github.com/avramovioan/dvm` opens in a browser. A company proxy may
   block `raw.githubusercontent.com`.
-- **`dvm` is not recognized.** Open a new terminal after `install.ps1`;
-  running terminals keep the PATH they started with. For the alias, check
-  that your profile runs (`Get-ExecutionPolicy` must not be `Restricted`) and
-  that `Get-Command dvm` points to `dvm.cmd`.
+- **`dvm` is not recognized.** Open a new terminal after installing; running
+  terminals keep the PATH they started with. For the alias, check that your
+  profile runs (`Get-ExecutionPolicy` must not be `Restricted`) and that
+  `Get-Command dvm` points to `dvm.cmd`.
 - **`dvm.ps1 cannot be loaded because running scripts is disabled`.**
   PowerShell found `dvm.ps1` instead of `dvm.cmd`. Keep `dvm.ps1` in the `lib`
   subfolder, or point your alias at `dvm.cmd`.
@@ -410,13 +485,13 @@ stay where they are.
 - **"No .NET SDKs were found".** Only runtimes are installed. Install an SDK
   with `dvm install lts`.
 
-## Checklist for the first test on a real Windows machine
+### Checklist for the first test on a real Windows machine
 
 Microsoft's release data and the listing logic are covered by the shared
 tests. These Windows-only parts can only be checked on Windows:
 
-1. `install.ps1` → new terminal → `dvm version` works in PowerShell **and**
-   cmd.
+1. Install A (`irm ... | iex`) → `dvm --version` works in the same
+   PowerShell window, and in cmd after opening a new one.
 2. `dvm list` shows Visual Studio / installer SDKs with the right label.
 3. `dvm install 10.0` in a normal terminal → one UAC prompt → the install
    progress appears in your own window → `dotnet --list-sdks` shows it.
@@ -434,10 +509,10 @@ tests. These Windows-only parts can only be checked on Windows:
    SDK installers as `Windows installer`; `dvm uninstall runtime` runs the
    runtime installer's uninstaller, and refuses (with a message) for a runtime
    that came inside an SDK installer or Visual Studio.
-9. The PowerShell alias (`Set-Alias dvm C:\...\windows\dvm.cmd` in
-   `$PROFILE`) and the cmd macro both start dvm from the clone, and
-   `dvm install` from the alias still gets its UAC prompt.
-10. The one-liner `irm ... | iex` in Windows PowerShell 5.1 installs dvm
-    and nothing else, `dvm version` shows the version from `VERSION`, the window stays open on errors (try
-    `$env:DVM_REF = 'nope'` first), and the cmd variant
-    (`powershell -Command "irm ... | iex"`) works too.
+9. Install B (the alias in `$PROFILE`, and the cmd macro) starts dvm from the
+   clone, and `dvm install` from the alias still gets its UAC prompt.
+10. The cmd install command (`powershell -Command "irm ... | iex"`) works,
+    and the PowerShell window stays open when the installer fails (try
+    `$env:DVM_REF = 'nope'` first).
+11. `dvm update` from an older version replaces dvm in place, and
+    `dvm no-such-command; $LASTEXITCODE` prints 2.

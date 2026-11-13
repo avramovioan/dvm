@@ -241,11 +241,18 @@ The version:
     `%LOCALAPPDATA%\Programs\dvm`, so an install anywhere else is refused.
 - Without a release, or without a network, it fails with a message. It
   never falls back to `master`.
-- `windows/dvm.cmd` keeps `powershell.exe ... %* & exit /b` on **one line**.
-  The installer replaces `dvm.cmd` while it runs, and cmd.exe reads batch
-  files line by line, so anything after that line could come from the new
-  file. `exit /b` without a number keeps PowerShell's exit code; CI checks
-  that.
+- `windows/dvm.cmd` keeps `powershell.exe ... %* & exit /b !ERRORLEVEL!` on
+  **one line**.
+  - Why one line: the installer replaces `dvm.cmd` while it runs, and cmd.exe
+    reads batch files line by line, so anything after that line could come
+    from the new file.
+  - Why `!ERRORLEVEL!`: with delayed expansion it is read when `exit` runs.
+    A bare `exit /b` returned 0 under `cmd /c`, and `%ERRORLEVEL%` is read
+    before PowerShell starts.
+  - The cost: delayed expansion drops `!` from arguments, which dvm never
+    takes. The script path uses `!DVM_PS1!` so a `!` in a folder name
+    survives.
+  - CI checks that exit codes 0 and 2 come through.
 
 Constraints that come from `curl | bash`:
 
