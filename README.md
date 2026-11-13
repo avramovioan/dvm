@@ -27,48 +27,28 @@ $ dvm list
 
 ## Install
 
-**Linux / macOS:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/avramovioan/dvm/master/unix/install.sh | bash
-```
+Pick your system. Each guide takes you from installing to a working `dvm`
+command, then covers updating, using dvm with .NET versions, and removing
+it again.
 
-**Windows (PowerShell):**
-```powershell
-irm https://raw.githubusercontent.com/avramovioan/dvm/master/windows/install.ps1 | iex
-```
+- **[Linux and macOS →](unix/README.md)**
+- **[Windows →](windows/README.md)**
 
-Both download dvm from the latest GitHub release and put the `dvm` command
-on your PATH. Nothing else: .NET isn't touched until you run a `dvm`
-command, e.g. `dvm list`, `dvm install lts`, or `dvm init` to take over a
-.NET install you already have. Later, `dvm update` updates dvm itself. The guides below cover options,
-installing from a clone, and reading the installer before running it.
-
-| Guide | Covers |
-|---|---|
-| [unix/README.md](unix/README.md) | Linux and macOS (`unix/dvm`, a bash script): install, alias for bash/zsh/fish, what works with which SDKs and runtimes, and how every command works there |
-| [windows/README.md](windows/README.md) | Windows (`windows/dvm.ps1`): install, alias for PowerShell and cmd, what works with which SDKs and runtimes, and how every command works there |
-| [AGENTS.md](AGENTS.md) | Notes for coding agents (and people) changing dvm: design rules, gotchas, how to test |
-
-## Commands
+## What dvm does
 
 | Command | What it does |
 |---|---|
-| `dvm list` | LTS channels, newest first. For each: the latest runtime and the latest SDK of each feature band, plus everything you have installed. End-of-life channels are hidden unless you have something installed from them. |
-| `dvm list --all` | Also shows the end-of-life LTS channels. |
-| `dvm list 10.0` | Every runtime and SDK of one channel (also works for non-LTS channels such as `9.0`). |
-| `dvm install lts` | Newest SDK of the newest supported LTS. |
-| `dvm install 10.0` | Newest SDK of that channel. |
-| `dvm install 10.0.404` | That exact SDK. |
-| `dvm install runtime 8.0` | Only the newest runtime of a channel, without its SDK. Also `runtime lts` and `runtime 8.0.34`. |
-| `dvm uninstall 10.0.404` | Removes an SDK, and its runtime unless something still needs it (see [SDKs and runtimes](#sdks-and-runtimes)). |
-| `dvm uninstall runtime 10.0.11` | Removes a runtime, unless an installed SDK needs it. |
-| `dvm init` | Looks for .NET installed elsewhere, offers to install the same versions with dvm, and makes dvm's folder the system default `dotnet`. |
-| `dvm update` | Updates dvm itself to the latest release (run from a git clone, it tells you to `git pull` instead). |
-| `dvm version` | Prints dvm's version. |
+| `dvm list` | LTS channels, newest first: their latest runtime and SDKs, plus everything you have installed |
+| `dvm install lts` / `10.0` / `10.0.404` | install an SDK |
+| `dvm install runtime 8.0` | install only a runtime, e.g. to run `net8.0` apps that you build with SDK 10 |
+| `dvm uninstall 10.0.404`, `dvm uninstall runtime 10.0.11` | remove an SDK or a runtime, never one that something still needs |
+| `dvm init` | take over .NET installed elsewhere, and make dvm's folder the system default `dotnet` |
+| `dvm update` | update dvm itself |
 
-`-y` / `--yes` answers yes to every question, for scripts.
+The full list, and what works with which SDKs and runtimes, is in the guide
+for your system.
 
-## Why no version switching (unlike nvm)
+### Why no version switching (unlike nvm)
 
 nvm has to switch the active Node version in your shell. .NET doesn't need
 that: every SDK and runtime lives side by side in **one folder**, and the
@@ -84,56 +64,10 @@ that: every SDK and runtime lives side by side in **one folder**, and the
 So dvm only has to install and remove things in that folder, and keep that
 folder the system default.
 
-## SDKs and runtimes
-
-- **The SDK builds, the runtime runs.** Every SDK comes with the runtime of
-  its own version (SDK 10.0.404 brings runtime 10.0.15). `dvm list` shows the
-  runtimes and SDKs of each channel in separate sections.
-- **One SDK builds every target.** SDK 10 builds `net8.0` projects too; it
-  downloads the 8.0 reference packs from NuGet. You only need another SDK
-  when a `global.json` pins one.
-- **Running needs the app's runtime.** A `net8.0` app runs on the newest
-  installed 8.0.x runtime, never on 10.0. With only SDK 10 installed,
-  `dotnet build` of a `net8.0` project works, but `dotnet run` and
-  `dotnet test` fail with *"Framework 'Microsoft.NETCore.App', version '8.0.0'
-  was not found"*. `dvm install runtime 8.0` fixes that without installing
-  SDK 8. There's nothing to configure afterwards: `dotnet` picks the right
-  runtime per app.
-- **Several patches of one channel are rarely useful.** Apps always use the
-  newest patch (10.0.15 over 10.0.11), so older patches that came with older
-  SDKs can go.
-
-`dvm list` labels every installed runtime:
-
-| Label | Meaning |
-|---|---|
-| `comes with SDK 10.0.404` | Installed with that SDK. |
-| `runtime only` | Installed with `dvm install runtime`, or no installed SDK came with it. |
-| `apt: …`, `macOS installer`, `Windows installer` | Installed by that installer; `dvm uninstall` goes through it. |
-
-What gets removed:
-
-- **`dvm uninstall runtime <version>`** removes that runtime, unless an
-  installed SDK needs it. An SDK runs on the runtime it came with or any newer
-  patch of the same channel, so SDK 10.0.303 (which came with 10.0.11) is fine
-  with 10.0.15. If no other installed runtime is new enough, dvm refuses and
-  names the SDKs:
-  ```
-  dvm: runtime 10.0.15 can't be removed: no other installed runtime is new enough for
-    SDK 10.0.404 (needs 10.0.15 or newer)
-  Remove those SDKs first with: dvm uninstall <version>
-  ```
-- **`dvm uninstall <sdk>`** removes the SDK and the runtime it came with. The
-  runtime stays if another SDK came with it too, if you installed it with
-  `dvm install runtime` (running that for a runtime you already have marks it
-  to keep), or if another SDK still needs it.
-- The newest `host/fxr` folder always stays, because the `dotnet` command
-  uses it.
-
-## How it works
+### How it works, in short
 
 - **Which folder.** dvm manages the standard .NET folder of each OS, the same
-  one Microsoft's installers and Visual Studio use, so anything already
+  one Microsoft's installers and Visual Studio use. Anything already
   installed there shows up with ✔ straight away:
 
   | OS | Folder |
@@ -142,50 +76,30 @@ What gets removed:
   | macOS | `/usr/local/share/dotnet` |
   | Windows | `C:\Program Files\dotnet` |
 
-- **Downloads.** The release list comes from Microsoft's release metadata
-  (`builds.dotnet.microsoft.com/dotnet/release-metadata`). It is cached for an
-  hour and used offline when there's no network. Installs are done by
-  Microsoft's own `dotnet-install.sh` / `dotnet-install.ps1`, so you always
-  get Microsoft's builds. A runtime install is Microsoft's ASP.NET Core
-  runtime package, which contains the base .NET runtime too; on Windows dvm
-  also installs the Windows Desktop runtime (WPF and Windows Forms), like the
-  Windows SDKs do. When you install an older version than you already have,
-  dvm passes `--skip-non-versioned-files`, so the `dotnet` command isn't
-  replaced by the older one.
-- **Admin rights.** The standard folder is a system folder. You always run
-  `dvm` as yourself; it asks for `sudo` (Linux/macOS) or a UAC prompt
-  (Windows) only for the step that writes there. `dvm list` never needs
-  them.
-- **Other installs.** On the first run, dvm looks for .NET installed somewhere
-  else (Ubuntu's apt packages, Homebrew's `dotnet` formula, `~/.dotnet`,
-  `%LOCALAPPDATA%\Microsoft\dotnet`, ...). It offers to install the same
-  versions with dvm (SDKs, plus the runtimes those SDKs don't bring),
-  updates the system links/PATH, and then tells you the exact command that
-  removes the old install. It never deletes anything
-  itself. After that it reminds you on `dvm list` until the old install is
-  gone.
-- **Removing SDKs and runtimes** goes through whoever installed them: dvm
-  deletes its own folders, runs `apt`/`dnf` for package-owned ones, runs the
-  registered uninstaller for the Windows installer, and sends you to the
-  Visual Studio Installer for SDKs that Visual Studio owns.
+- **Microsoft's builds only.** The release list comes from Microsoft's
+  release metadata, and installs are done by Microsoft's own
+  `dotnet-install.sh` / `dotnet-install.ps1`.
+- **Admin rights only when needed.** You run `dvm` as yourself; it asks for
+  `sudo` or shows a UAC prompt only for the step that writes to that folder.
+- **Other installs.** dvm finds .NET installed somewhere else (apt packages,
+  Homebrew, `~/.dotnet`, ...), offers to install the same versions, and tells
+  you the exact command that removes the old install. It never deletes
+  anything outside its folder itself.
+- **Removing** goes through whoever installed it: dvm's own folders, `apt` /
+  `dnf`, the Windows installer, or the Visual Studio Installer.
 
-## Dependencies
+## Development
 
-None to install:
+The rest of this page is for changing and releasing dvm.
+[AGENTS.md](AGENTS.md) has the design rules and gotchas.
 
-- **Linux / macOS:** bash 3.2+ plus `curl` (or `wget`), `grep`, `awk`, `sed`
-  and `tar`, all preinstalled. It doesn't use jq: dvm has a small JSON reader
-  built from `grep` and `awk`.
-- **Windows:** Windows PowerShell 5.1, which ships with Windows 10 and 11.
-  PowerShell 7 works too.
-
-## Repository layout
+### Repository layout
 
 ```
 VERSION               dvm's version: the only place it is written down
-unix/dvm              the command for Linux and macOS (bash)
+unix/dvm              the command for Linux and macOS (bash 3.2+)
 unix/install.sh       installs it to /usr/local/bin (or ~/.local/bin), from a clone or from GitHub
-windows/dvm.ps1       the command for Windows (PowerShell)
+windows/dvm.ps1       the command for Windows (Windows PowerShell 5.1+)
 windows/dvm.cmd       the global `dvm` command that starts dvm.ps1
 windows/install.ps1   installs both to %LOCALAPPDATA%\Programs\dvm, from a clone or from GitHub
 tests/                shared test cases, run against both versions, and installer tests
@@ -193,7 +107,11 @@ tests/                shared test cases, run against both versions, and installe
 AGENTS.md             notes for anyone (or any agent) changing dvm
 ```
 
-## Tests
+No dependencies: on Linux and macOS dvm uses only bash, `curl` or `wget`,
+`grep`, `awk`, `sed` and `tar` (it has a small JSON reader, no jq); on
+Windows only Windows PowerShell 5.1.
+
+### Tests
 
 Both versions run the same cases (`tests/cases.txt`) against the same fixed
 release data (`tests/fixtures/`) and have to produce exactly the output in
@@ -208,8 +126,8 @@ pwsh -File tests/run-windows.ps1                              # PowerShell 7, an
 After an intended output change, run `tests/run-unix.sh --update`, review the
 diff in `tests/expected/`, and check that the Windows runner still passes.
 
-The installers have their own tests, which use a fake GitHub made of local
-files:
+The installers and `dvm update` have their own tests, which use a fake
+GitHub made of local files:
 
 ```bash
 tests/test-install.sh                 # unix/install.sh
@@ -217,10 +135,10 @@ pwsh -File tests/test-install.ps1     # windows/install.ps1 (in CI only, on Wind
 ```
 
 `.github/workflows/test.yml` runs all of them on Ubuntu, macOS (`/bin/bash`
-3.2) and Windows PowerShell 5.1, and then installs dvm with the one-liners
-from the pushed commit.
+3.2) and Windows PowerShell 5.1, and then installs dvm with the one-line
+installers from the pushed commit.
 
-## Versions and releases
+### Versions and releases
 
 dvm's version is written in **one place: the `VERSION` file** (one line,
 e.g. `1.2.0`). The scripts only contain a placeholder, `0.0.0-dev`:
@@ -262,7 +180,7 @@ If a release workflow fails, nothing is published: delete the tag
 problem, and tag again. Never move the tag of a release that was published;
 release a new version instead.
 
-## Environment variables
+### Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|

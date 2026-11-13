@@ -32,18 +32,84 @@ jobs:
       - name: Tests (Windows PowerShell 5.1)
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-windows.ps1
-      - name: dvm.cmd starts dvm and passes its exit code on
+      # dvm.cmd has to pass dvm's exit code on (0 for `version`, 2 for an
+      # unknown command), from cmd and from PowerShell. Results are written
+      # as ::error:: / ::warning:: annotations, which are readable without
+      # signing in (unlike the log).
+      # Information only: how each way of ending a batch file passes on an exit
+      # code (PowerShell exits with 2), and what happens when the batch file is
+      # replaced while it runs (what `dvm update` does to dvm.cmd).
+      - name: Batch file exit code experiments (information only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
         shell: powershell
         run: |
-          & windows\dvm.cmd version
-          if ($LASTEXITCODE -ne 0) { throw "dvm.cmd version exited with $LASTEXITCODE" }
-          & windows\dvm.cmd no-such-command
-          if ($LASTEXITCODE -ne 2) { throw "dvm.cmd no-such-command exited with $LASTEXITCODE, expected 2" }
+          $ErrorActionPreference = 'Continue'
+          $d = Join-Path $env:RUNNER_TEMP 'exitcodes'
+          New-Item -ItemType Directory -Force -Path $d | Out-Null
+          $ps = 'powershell.exe -NoProfile -Command "exit 2"'
+          $variants = [ordered]@{
+              'separate-line' = "@echo off`r`n$ps`r`nexit /b %ERRORLEVEL%`r`n"
+              'bare-exit'     = "@echo off`r`n$ps & exit /b`r`n"
+              'delayed'       = "@echo off`r`nsetlocal EnableDelayedExpansion`r`n$ps & exit /b !ERRORLEVEL!`r`n"
+              'if-errorlevel' = "@echo off`r`n$ps & if errorlevel 2 (exit /b 2) else if errorlevel 1 (exit /b 1) else exit /b 0`r`n"
+          }
+          foreach ($k in $variants.Keys) {
+              $f = Join-Path $d "$k.cmd"
+              [IO.File]::WriteAllText($f, $variants[$k])
+              & $f | Out-Null; $fromPs = $LASTEXITCODE
+              cmd.exe /d /c call $f | Out-Null; $fromCmd = $LASTEXITCODE
+              Write-Host "::warning::exit code '$k': PowerShell got $fromPs, cmd /c call got $fromCmd (want 2)"
+          }
+          # The batch file rewrites itself while PowerShell runs, like `dvm update`.
+          foreach ($k in 'separate-line', 'if-errorlevel') {
+              $f = Join-Path $d "rewrite-$k.cmd"
+              $rewrite = "powershell.exe -NoProfile -Command `"Set-Content -LiteralPath '$f' -Value ('@echo off', 'rem ' + ('x' * 200), 'echo NEW-FILE-LINE-RAN', 'echo NEW-FILE-LINE-RAN', 'echo NEW-FILE-LINE-RAN'); exit 2`""
+              $end = if ($k -eq 'separate-line') { "`r`nexit /b %ERRORLEVEL%" } else { ' & if errorlevel 2 (exit /b 2) else if errorlevel 1 (exit /b 1) else exit /b 0' }
+              [IO.File]::WriteAllText($f, "@echo off`r`n$rewrite$end`r`n")
+              $out = (@(& $f 2>&1) | ForEach-Object { "$_" }) -join ' | '
+              $rc = $LASTEXITCODE
+              Write-Host "::warning::rewritten while running '$k': exit code $rc (want 2), output: [$out] (want empty)"
+          }
+      - name: dvm.cmd passes the exit code on (cmd)
+        if: ${{ !cancelled() }}
+        shell: cmd
+        run: |
+          call windows\dvm.cmd version
+          set rc=%errorlevel%
+          echo dvm.cmd version exited with %rc%
+          if not "%rc%"=="0" (echo ::error::cmd: dvm.cmd version exited with %rc%, expected 0& exit /b 1)
+          call windows\dvm.cmd no-such-command >nul
+          set rc=%errorlevel%
+          echo dvm.cmd no-such-command exited with %rc%
+          if not "%rc%"=="2" (echo ::error::cmd: dvm.cmd no-such-command exited with %rc%, expected 2& exit /b 1)
+          exit /b 0
+      - name: dvm.cmd passes the exit code on (PowerShell)
+        if: ${{ !cancelled() }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $failed = $false
+          foreach ($case in @(@('version', 0), @('no-such-command', 2))) {
+              $out = @(& windows\dvm.cmd $case[0] 2>&1)
+              $rc = $LASTEXITCODE
+              $errs = @($out | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+              $text = (@($out | ForEach-Object { "$_" }) | Select-Object -First 3) -join ' | '
+              Write-Host "dvm.cmd $($case[0]) exited with $rc. Output: $text"
+              if ($errs.Count -gt 0) { Write-Host "::warning::PowerShell: dvm.cmd $($case[0]) wrote to stderr: $($errs -join ' | ')" }
+              if ($rc -ne $case[1]) {
+                  Write-Host "::error::PowerShell: dvm.cmd $($case[0]) exited with $rc, expected $($case[1]). Output: $text"
+                  $failed = $true
+              }
+          }
+          if ($failed) { exit 1 }
+          exit 0
       - name: Installer tests
+        if: ${{ !cancelled() }}
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-install.ps1
       - name: Install from GitHub (irm | iex)
-        if: github.event_name == 'push'
+        if: ${{ !cancelled() && github.event_name == 'push' }}
         shell: powershell
         run: |
           $env:DVM_REPO = $env:GITHUB_REPOSITORY; $env:DVM_REF = $env:GITHUB_SHA

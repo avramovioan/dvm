@@ -241,18 +241,19 @@ The version:
     `%LOCALAPPDATA%\Programs\dvm`, so an install anywhere else is refused.
 - Without a release, or without a network, it fails with a message. It
   never falls back to `master`.
-- `windows/dvm.cmd` keeps `powershell.exe ... %* & exit /b !ERRORLEVEL!` on
-  **one line**.
+- `windows/dvm.cmd` runs PowerShell and exits on **one line**:
+  `powershell.exe ... %* & if errorlevel 2 (exit /b 2) else if errorlevel 1 (exit /b 1) else exit /b 0`.
   - Why one line: the installer replaces `dvm.cmd` while it runs, and cmd.exe
     reads batch files line by line, so anything after that line could come
     from the new file.
-  - Why `!ERRORLEVEL!`: with delayed expansion it is read when `exit` runs.
-    A bare `exit /b` returned 0 under `cmd /c`, and `%ERRORLEVEL%` is read
-    before PowerShell starts.
-  - The cost: delayed expansion drops `!` from arguments, which dvm never
-    takes. The script path uses `!DVM_PS1!` so a `!` in a folder name
-    survives.
-  - CI checks that exit codes 0 and 2 come through.
+  - Why `if errorlevel`: it is checked when it runs. A bare `exit /b` and
+    `exit /b !ERRORLEVEL!` (delayed expansion) both lost the exit code on
+    GitHub's Windows runner, and `%ERRORLEVEL%` is read before PowerShell
+    starts. dvm only exits with 0, 1 or 2; keep it that way, or extend the
+    chain.
+  - CI checks that 0 and 2 come through from cmd and from PowerShell. An
+    information-only step also compares the variants, and the
+    replaced-while-running case, as annotations.
 
 Constraints that come from `curl | bash`:
 
@@ -360,3 +361,16 @@ DVM_ROOT=/tmp/x DVM_STATE=/tmp/x-state DVM_NO_DETECT=1 unix/dvm install runtime 
   - When something is refused, say what to run instead.
 - **Docs:** short sentences, tables for comparisons. When behavior changes,
   update the matching tables in both OS READMEs.
+- **README structure** (the owner asked for it this way):
+  - `README.md` doesn't explain installing. It links to the two OS guides,
+    and keeps an overview plus the development sections.
+  - `unix/README.md` and `windows/README.md` follow this order:
+    1. Install, as two complete flows, each ending with `dvm --version` as
+       the check:
+       - A: the one-line installer;
+       - B: git clone plus an alias the user adds themselves.
+    2. Updating (`dvm update` for A, `git pull` for B).
+    3. Using dvm (first steps, commands, SDK/runtime tables).
+    4. Removing dvm entirely.
+    5. "How it works": where things are stored, what the installer does and
+       its options, then the rest of the technical details.
